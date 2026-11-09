@@ -64,7 +64,7 @@ CREATE TABLE savings_goals (
     PRIMARY KEY (id),
     KEY idx_savings_goals_user_status (user_id, status),
     CONSTRAINT fk_savings_goals_user
-        FOREIGN KEY (user_id) REFERENCES users (id)
+        FOREIGN KEY (user_id) REFERENCES users (id) 
         ON DELETE CASCADE
 );
 

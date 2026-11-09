@@ -97,6 +97,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             wallet_set_flash('success', 'Goal status updated.');
         }
+    } elseif ($action === 'delete' && $goalId !== false) {
+        $statement = $pdo->prepare(
+            'DELETE FROM savings_goals WHERE id = :id AND user_id = :user_id'
+        );
+        $statement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
+        $deleted = $statement->rowCount() > 0;
+        wallet_set_flash(
+            $deleted ? 'success' : 'error',
+            $deleted ? 'Savings goal and its contributions deleted.' : 'That savings goal could not be found.'
+        );
     } elseif ($action === 'contribute' && $goalId !== false) {
         $amount = wallet_post_string('amount');
         $note = wallet_post_string('note');
@@ -321,39 +331,12 @@ require __DIR__ . '/includes/app_shell_start.php';
                                     <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100"><?= $goal['status'] === 'active' ? 'Pause' : 'Resume' ?></button>
                                 </form>
                             <?php endif; ?>
-                            <?php if ($goal['status'] === 'active'): ?>
-                                <details>
-                                    <summary class="flex w-fit cursor-pointer list-none items-center gap-2 rounded-lg bg-[#123a2c] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#0d3024] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
-                                        Add contribution
-                                    </summary>
-                                    <form method="post" action="savings.php" class="absolute right-0 top-full z-20 mt-2 grid w-[min(32rem,calc(100vw-3rem))] gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl sm:grid-cols-[1fr_1.2fr_auto] sm:items-end" data-confirm-title="Add this savings contribution?" data-confirm-description="This contribution will be recorded toward your savings goal." data-confirm-label="Add contribution">
-                                        <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                                        <input type="hidden" name="action" value="contribute">
-                                        <input type="hidden" name="goal_id" value="<?= (int) $goal['id'] ?>">
-                                        <div>
-                                            <label for="amount-<?= (int) $goal['id'] ?>" class="mb-1.5 block text-xs font-medium text-slate-600">Amount</label>
-                                            <input id="amount-<?= (int) $goal['id'] ?>" name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
-                                        </div>
-                                        <div>
-                                            <label for="account-<?= (int) $goal['id'] ?>" class="mb-1.5 block text-xs font-medium text-slate-600">Associated account <span class="font-normal text-slate-400">optional</span></label>
-                                            <select id="account-<?= (int) $goal['id'] ?>" name="account_id" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
-                                                <option value="">Not specified</option>
-                                                <?php foreach ($accounts as $account): ?>
-                                                    <?php if ($account['currency_code'] === $goal['currency_code']): ?>
-                                                        <option value="<?= (int) $account['id'] ?>"><?= wallet_escape((string) $account['name']) ?></option>
-                                                    <?php endif; ?>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        </div>
-                                        <button type="submit" class="rounded-lg bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Add</button>
-                                        <div class="sm:col-span-3">
-                                            <label for="note-<?= (int) $goal['id'] ?>" class="sr-only">Contribution note</label>
-                                            <input id="note-<?= (int) $goal['id'] ?>" name="note" type="text" maxlength="255" placeholder="Optional note" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
-                                        </div>
-                                        <p class="text-xs leading-5 text-slate-500 sm:col-span-3">Contributions track goal progress only; they don’t create a bank transaction or change your account balance.</p>
-                                    </form>
-                                </details>
-                            <?php endif; ?>
+                            <form method="post" action="savings.php" data-confirm-title="Delete this savings goal?" data-confirm-description="This goal and all of its contribution history will be permanently deleted." data-confirm-label="Delete goal" data-confirm-variant="danger">
+                                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="goal_id" value="<?= (int) $goal['id'] ?>">
+                                <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50">Delete</button>
+                            </form>
                         </div>
                     </div>
                     <div class="mt-5 flex items-center justify-between gap-3 text-sm">
@@ -398,6 +381,41 @@ require __DIR__ . '/includes/app_shell_start.php';
                                     </div>
                                 <?php endforeach; ?>
                             </div>
+                        </div>
+                    <?php endif; ?>
+                    <?php if ($goal['status'] === 'active'): ?>
+                        <div class="mt-5 flex justify-end">
+                            <details class="relative">
+                                <summary class="flex w-fit cursor-pointer list-none items-center gap-2 rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d3024] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+                                    Add contribution
+                                </summary>
+                                <form method="post" action="savings.php" class="absolute bottom-full right-0 z-20 mb-2 grid w-[min(32rem,calc(100vw-3rem))] gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl sm:grid-cols-[1fr_1.2fr_auto] sm:items-end" data-confirm-title="Add this savings contribution?" data-confirm-description="This contribution will be recorded toward your savings goal." data-confirm-label="Add contribution">
+                                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                    <input type="hidden" name="action" value="contribute">
+                                    <input type="hidden" name="goal_id" value="<?= (int) $goal['id'] ?>">
+                                    <div>
+                                        <label for="amount-<?= (int) $goal['id'] ?>" class="mb-1.5 block text-xs font-medium text-slate-600">Amount</label>
+                                        <input id="amount-<?= (int) $goal['id'] ?>" name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
+                                    </div>
+                                    <div>
+                                        <label for="account-<?= (int) $goal['id'] ?>" class="mb-1.5 block text-xs font-medium text-slate-600">Associated account <span class="font-normal text-slate-400">optional</span></label>
+                                        <select id="account-<?= (int) $goal['id'] ?>" name="account_id" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
+                                            <option value="">Not specified</option>
+                                            <?php foreach ($accounts as $account): ?>
+                                                <?php if ($account['currency_code'] === $goal['currency_code']): ?>
+                                                    <option value="<?= (int) $account['id'] ?>"><?= wallet_escape((string) $account['name']) ?></option>
+                                                <?php endif; ?>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <button type="submit" class="rounded-lg bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Add</button>
+                                    <div class="sm:col-span-3">
+                                        <label for="note-<?= (int) $goal['id'] ?>" class="sr-only">Contribution note</label>
+                                        <input id="note-<?= (int) $goal['id'] ?>" name="note" type="text" maxlength="255" placeholder="Optional note" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
+                                    </div>
+                                    <p class="text-xs leading-5 text-slate-500 sm:col-span-3">Contributions track goal progress only; they don’t create a bank transaction or change your account balance.</p>
+                                </form>
+                            </details>
                         </div>
                     <?php endif; ?>
                 </article>
