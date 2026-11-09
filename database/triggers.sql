@@ -1,9 +1,10 @@
--- Balance changes belong to the database. Do not also adjust balances in PHP.
+-- MySQL 8.0 triggers. Balance changes belong to the database; do not also adjust balances in PHP.
 -- Installing these triggers preserves all existing records and opening balances.
 SET @wallet_previous_sql_mode=@@SESSION.sql_mode;
 SET SESSION sql_mode=IF(FIND_IN_SET('STRICT_TRANS_TABLES',@@SESSION.sql_mode) OR FIND_IN_SET('STRICT_ALL_TABLES',@@SESSION.sql_mode),@@SESSION.sql_mode,CONCAT_WS(',',@@SESSION.sql_mode,'STRICT_TRANS_TABLES'));
 DELIMITER $$
-CREATE OR REPLACE TRIGGER trg_transactions_validate_insert
+DROP TRIGGER IF EXISTS trg_transactions_validate_insert$$
+CREATE TRIGGER trg_transactions_validate_insert
 BEFORE INSERT ON transactions FOR EACH ROW
 BEGIN
     DECLARE v_owner BIGINT UNSIGNED DEFAULT NULL;
@@ -20,7 +21,8 @@ BEGIN
     END IF;
 END$$
 
-CREATE OR REPLACE TRIGGER trg_transactions_validate_update
+DROP TRIGGER IF EXISTS trg_transactions_validate_update$$
+CREATE TRIGGER trg_transactions_validate_update
 BEFORE UPDATE ON transactions FOR EACH ROW
 BEGIN
     DECLARE v_owner BIGINT UNSIGNED DEFAULT NULL;
@@ -40,14 +42,16 @@ BEGIN
     END IF;
 END$$
 
-CREATE OR REPLACE TRIGGER trg_transactions_balance_insert
+DROP TRIGGER IF EXISTS trg_transactions_balance_insert$$
+CREATE TRIGGER trg_transactions_balance_insert
 AFTER INSERT ON transactions FOR EACH ROW
 BEGIN
     UPDATE wallets SET current_balance=current_balance+NEW.amount
     WHERE id=NEW.wallet_id AND user_id=NEW.user_id;
 END$$
 
-CREATE OR REPLACE TRIGGER trg_transactions_balance_update
+DROP TRIGGER IF EXISTS trg_transactions_balance_update$$
+CREATE TRIGGER trg_transactions_balance_update
 AFTER UPDATE ON transactions FOR EACH ROW
 BEGIN
     IF OLD.wallet_id=NEW.wallet_id THEN
@@ -63,14 +67,16 @@ BEGIN
     END IF;
 END$$
 
-CREATE OR REPLACE TRIGGER trg_transactions_balance_delete
+DROP TRIGGER IF EXISTS trg_transactions_balance_delete$$
+CREATE TRIGGER trg_transactions_balance_delete
 AFTER DELETE ON transactions FOR EACH ROW
 BEGIN
     UPDATE wallets SET current_balance=current_balance-OLD.amount
     WHERE id=OLD.wallet_id AND user_id=OLD.user_id;
 END$$
 
-CREATE OR REPLACE TRIGGER trg_savings_contribution_validate
+DROP TRIGGER IF EXISTS trg_savings_contribution_validate$$
+CREATE TRIGGER trg_savings_contribution_validate
 BEFORE INSERT ON savings_contributions FOR EACH ROW
 BEGIN
     DECLARE v_owner BIGINT UNSIGNED DEFAULT NULL;
@@ -93,7 +99,8 @@ BEGIN
     END IF;
 END$$
 
-CREATE OR REPLACE TRIGGER trg_savings_goal_complete
+DROP TRIGGER IF EXISTS trg_savings_goal_complete$$
+CREATE TRIGGER trg_savings_goal_complete
 AFTER INSERT ON savings_contributions FOR EACH ROW
 BEGIN
     UPDATE savings_goals SET status='completed'

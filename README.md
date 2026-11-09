@@ -6,15 +6,16 @@ A vanilla PHP and MySQL personal finance app. Serve this directory with XAMPP an
 
 The app uses 17 stored procedures, five views, and seven triggers. Procedures handle finance operations and reports; transaction triggers maintain wallet balances, and a savings trigger completes reached goals. PHP handles sessions, CSRF, password hashing, input feedback, and rendering.
 
-After importing the schema or applying the existing table migrations, install the database programs:
+After importing the schema or applying the existing table migrations, run the read-only MySQL compatibility preflight and then install the database programs:
 
 ```text
+php database/install_programs.php --check
 php database/install_programs.php --apply
 ```
 
-Run the installer before using the updated PHP app, with application writes stopped during installation. It can be rerun and does not recalculate existing balances. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction.
+Run the installer before using the updated PHP app, with application writes stopped during installation. It targets MySQL 8.0.16 or newer (including MySQL Community Server 8.0.46), requires the Performance Schema `events_transactions_current` consumer, can be rerun after a partial failure, and does not recalculate existing balances. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction.
 
-See [the case-study guide](database/CASE_STUDY.md) for the rubric mapping, procedure catalog, SQL examples, and installation details. The implementation is tested on XAMPP's MariaDB 10.4.32.
+See [the case-study guide](database/CASE_STUDY.md) for the rubric mapping, procedure catalog, SQL examples, and installation details. The database-program compatibility target is MySQL Community Server 8.0.46.
 
 ## Spending analysis
 
@@ -81,6 +82,12 @@ Run the Financial Reports calculation, isolation, budget, CSV, and PDF tests (PD
 
 ```text
 php tests/financial_reports_test.php
+```
+
+Check database-program SQL framing and MySQL compatibility without connecting to or changing a database:
+
+```text
+php tests/database_programs_static_test.php
 ```
 
 Run the calculation and query-isolation tests with PHP CLI (PDO SQLite required):
