@@ -115,40 +115,6 @@ $noSpending = wallet_build_spending_analysis([spending_row('2024-02-01', '5.00')
     new DateTimeImmutable('2024-03-01'), $today);
 spending_assert_same(-100.0, $noSpending['change_percent'], 'No current spending is a full decrease from a positive baseline');
 
-$pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-$pdo->exec('CREATE TABLE wallets (id INTEGER PRIMARY KEY, user_id INTEGER, currency_code TEXT, is_archived INTEGER)');
-$pdo->exec('CREATE TABLE transactions (id INTEGER PRIMARY KEY, user_id INTEGER, wallet_id INTEGER, category TEXT,
-    amount TEXT, transaction_date TEXT, expense_nature TEXT)');
-$pdo->exec("INSERT INTO wallets VALUES (1, 1, 'PHP', 0), (2, 1, 'USD', 0), (3, 1, 'PHP', 1), (4, 2, 'PHP', 0)");
-$insert = $pdo->prepare('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?)');
-$fixtures = [
-    [1, 1, 1, 'Food', '-1.00', '2024-03-01 09:00:00', 'essential'],
-    [2, 1, 2, 'Food', '-100.00', '2024-03-01 09:00:00', null],
-    [3, 1, 3, 'Food', '-100.00', '2024-03-01 09:00:00', null],
-    [4, 2, 4, 'Private other user', '-100.00', '2024-03-01 09:00:00', null],
-    [5, 1, 4, 'Food', '-100.00', '2024-03-01 09:00:00', null],
-    [6, 1, 1, 'Food', '100.00', '2024-03-01 09:00:00', null],
-    [7, 1, 1, 'Food', '-100.00', '2024-03-11 00:00:00', null],
-    [8, 1, 1, 'Custom second', '-2.00', '2024-03-01 09:00:00', null],
-    [9, 1, 1, 'Custom category', '-3.00', '2024-03-01 09:00:00', 'non_essential'],
-    [10, 1, 1, null, '-4.00', '2024-03-01 09:00:00', null],
-    [11, 1, 1, null, '-5.00', '2023-09-30 23:59:59', null],
-    [12, 1, 1, null, '-6.00', '2023-10-01 00:00:00', null],
-    [13, 1, 1, null, '-0.10', '2024-03-10 23:59:59', null],
-];
-foreach ($fixtures as $fixture) {
-    $insert->execute($fixture);
-}
-$loaded = wallet_load_spending_analysis($pdo, 1, 'PHP', new DateTimeImmutable('2024-03-01'), $today);
-spending_assert_same(1010, $loaded['total_cents'], 'Loader scopes user, active owned wallet, currency, expense type and date');
-spending_assert_same(5, $loaded['transaction_count'], 'Loader retains valid uncategorized and shared-category expenses');
-spending_assert_same('Uncategorized', $loaded['categories'][0]['name'], 'Category names are grouped directly without a category table');
-spending_assert_same(false, in_array('Private other user', array_column($loaded['categories'], 'name'), true),
-    'Another user category name never leaks into the report');
-spending_assert_same(600, $loaded['months'][0]['total_cents'], 'Loader includes exact lower trend boundary');
-$otherCurrency = wallet_load_spending_analysis($pdo, 1, 'USD', new DateTimeImmutable('2024-03-01'), $today);
-spending_assert_same(10000, $otherCurrency['total_cents'], 'Other currency can be selected independently');
-$otherUser = wallet_load_spending_analysis($pdo, 2, 'PHP', new DateTimeImmutable('2024-03-01'), $today);
-spending_assert_same(10000, $otherUser['total_cents'], 'Other user sees only their own transactions');
+// Stored-procedure query isolation is covered in database_programs_test.php.
 
 echo 'Spending analysis tests passed (' . $assertions . " assertions).\n";

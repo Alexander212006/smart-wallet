@@ -10,72 +10,42 @@ $supportedCurrencies = ['PHP', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'SGD'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
-
     $action = wallet_post_string('action');
-    $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
-
-    if ($action === 'create') {
-        $name = wallet_post_string('name');
-        $type = wallet_post_string('account_type');
-        $currentBalance = wallet_post_string('current_balance');
-        $currency = strtoupper(wallet_post_string('currency_code'));
-
-        if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
-            wallet_set_flash('error', 'Enter a valid account name and type.');
-        } elseif (!wallet_valid_signed_amount($currentBalance)) {
-            wallet_set_flash('error', 'Enter a valid current balance with up to two decimal places.');
-        } elseif (!in_array($currency, $supportedCurrencies, true)) {
-            wallet_set_flash('error', 'Choose a supported currency.');
+    try {
+        $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($action === 'create') {
+            $name = wallet_post_string('name');
+            $type = wallet_post_string('account_type');
+            $currentBalance = wallet_post_string('current_balance');
+            $currency = strtoupper(wallet_post_string('currency_code'));
+            if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
+                wallet_set_flash('error', 'Enter a valid account name and type.');
+            } elseif (!wallet_valid_signed_amount($currentBalance)) {
+                wallet_set_flash('error', 'Enter a valid current balance with up to two decimal places.');
+            } elseif (!in_array($currency, $supportedCurrencies, true)) {
+                wallet_set_flash('error', 'Choose a supported currency.');
+            } else {
+                wallet_call_procedure($pdo, 'sp_create_wallet', [$walletUserId, $name, $type, $currentBalance, $currency]);
+                wallet_set_flash('success', 'Account created.');
+            }
+        } elseif ($action === 'update' && $accountId !== false) {
+            $name = wallet_post_string('name');
+            $type = wallet_post_string('account_type');
+            if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
+                wallet_set_flash('error', 'Enter a valid account name and type.');
+            } else {
+                wallet_call_procedure($pdo, 'sp_update_wallet', [$walletUserId, $accountId, $name, $type]);
+                wallet_set_flash('success', 'Account updated.');
+            }
+        } elseif (in_array($action, ['archive', 'restore'], true) && $accountId !== false) {
+            wallet_call_procedure($pdo, 'sp_set_wallet_archived', [$walletUserId, $accountId, $action === 'archive' ? 1 : 0]);
+            wallet_set_flash('success', $action === 'archive' ? 'Account archived.' : 'Account restored.');
         } else {
-            $statement = $pdo->prepare(
-                'INSERT INTO wallets (user_id, name, wallet_type, current_balance, currency_code)
-                 VALUES (:user_id, :name, :account_type, :current_balance, :currency_code)'
-            );
-            $statement->execute([
-                'user_id' => $walletUserId,
-                'name' => $name,
-                'account_type' => $type,
-                'current_balance' => $currentBalance,
-                'currency_code' => $currency,
-            ]);
-            wallet_set_flash('success', 'Account created.');
+            wallet_set_flash('error', 'That account action could not be completed.');
         }
-    } elseif ($action === 'update' && $accountId !== false) {
-        $name = wallet_post_string('name');
-        $type = wallet_post_string('account_type');
-
-        if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
-            wallet_set_flash('error', 'Enter a valid account name and type.');
-        } else {
-            $statement = $pdo->prepare(
-                'UPDATE wallets
-                 SET name = :name, wallet_type = :account_type
-                 WHERE id = :id AND user_id = :user_id'
-            );
-            $statement->execute([
-                'name' => $name,
-                'account_type' => $type,
-                'id' => $accountId,
-                'user_id' => $walletUserId,
-            ]);
-            wallet_set_flash('success', 'Account updated.');
-        }
-    } elseif (in_array($action, ['archive', 'restore'], true) && $accountId !== false) {
-        $archived = $action === 'archive' ? 1 : 0;
-        $statement = $pdo->prepare(
-            'UPDATE wallets SET is_archived = :is_archived WHERE id = :id AND user_id = :user_id'
-        );
-        $statement->execute([
-            'is_archived' => $archived,
-            'id' => $accountId,
-            'user_id' => $walletUserId,
-        ]);
-        $message = $action === 'archive' ? 'Account archived.' : 'Account restored.';
-        wallet_set_flash('success', $message);
-    } else {
-        wallet_set_flash('error', 'That account action could not be completed.');
+    } catch (PDOException $error) {
+        wallet_set_flash('error', wallet_procedure_error($error));
     }
-
     header('Location: wallet.php' . ($action === 'restore' ? '?view=archived' : ''));
     exit;
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/app.php';
+require_once __DIR__ . '/includes/expense_limits.php';
 
 $pdo = getDatabaseConnection();
 $periods = ['weekly', 'monthly', 'yearly'];
@@ -13,289 +14,98 @@ $expenseNatureOptions = ['' => 'Unclassified', 'essential' => 'Essential', 'non_
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
-
     $action = wallet_post_string('action');
-    $budgetId = filter_var($_POST['budget_id'] ?? null, FILTER_VALIDATE_INT);
-
-    if (in_array($action, ['add_expense', 'update_expense'], true)) {
-        $expenseId = filter_var($_POST['expense_id'] ?? null, FILTER_VALIDATE_INT);
-        $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
-        $categoryValue = wallet_post_string('expense_category');
-        $category = trim(
-            $categoryValue === 'other'
+    try {
+        $budgetId = filter_var($_POST['budget_id'] ?? null, FILTER_VALIDATE_INT);
+        if (in_array($action, ['add_expense', 'update_expense'], true)) {
+            $expenseId = filter_var($_POST['expense_id'] ?? null, FILTER_VALIDATE_INT);
+            $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
+            $categoryValue = wallet_post_string('expense_category');
+            $category = trim($categoryValue === 'other'
                 ? wallet_post_string('custom_category')
-                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : '')
-        );
-        $amount = wallet_post_string('expense_amount');
-        $description = wallet_post_string('expense_description');
-        $expenseDate = wallet_post_string('expense_date');
-        $expenseNature = wallet_post_string('expense_nature');
+                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : ''));
 
-        $validAccount = false;
-        if ($accountId !== false) {
-            $accountStatement = $pdo->prepare(
-                'SELECT id FROM wallets WHERE id = :id AND user_id = :user_id AND is_archived = 0'
-            );
-            $accountStatement->execute(['id' => $accountId, 'user_id' => $walletUserId]);
-            $validAccount = $accountStatement->fetchColumn() !== false;
-        }
-
-        $existingExpense = true;
-        if ($action === 'update_expense' && $expenseId !== false) {
-            $existingExpenseStatement = $pdo->prepare(
-                'SELECT id FROM transactions
-                 WHERE id = :id AND user_id = :user_id AND amount < 0'
-            );
-            $existingExpenseStatement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
-            $existingExpense = $existingExpenseStatement->fetchColumn() !== false;
-        }
-
-        $invalid = !$validAccount
-            || !wallet_valid_category($category)
-            || !wallet_valid_amount($amount)
-            || strlen($description) > 255
-            || !wallet_valid_date($expenseDate)
-            || !is_string($_POST['expense_nature'] ?? '')
-            || !array_key_exists($expenseNature, $expenseNatureOptions)
-            || ($action === 'update_expense' && ($expenseId === false || !$existingExpense));
-
-        if ($invalid) {
-            wallet_set_flash('error', 'Check the expense details and try again.');
-        } else {
-            $parameters = [
-                'account_id' => $accountId,
-                'category' => $category,
-                'amount' => '-' . $amount,
-                'description' => $description === '' ? null : $description,
-                'transaction_date' => $expenseDate . ' 12:00:00',
-                'expense_nature' => $expenseNature === '' ? null : $expenseNature,
-                'user_id' => $walletUserId,
-            ];
-
-            if ($action === 'add_expense') {
-                $pdo->beginTransaction();
-                $statement = $pdo->prepare(
-                    'INSERT INTO transactions
-                        (user_id, wallet_id, category, amount, description, transaction_date, expense_nature)
-                     VALUES
-                        (:user_id, :account_id, :category, :amount, :description, :transaction_date, :expense_nature)'
-                );
-                $statement->execute($parameters);
-                wallet_apply_transaction_to_current_balance(
-                    $pdo,
-                    $walletUserId,
-                    (int) $accountId,
-                    $parameters['amount']
-                );
-                $pdo->commit();
-                wallet_set_flash('success', 'Expense added to your wallet.');
+            $amount = wallet_post_string('expense_amount');
+            $description = wallet_post_string('expense_description');
+            $expenseDate = wallet_post_string('expense_date');
+            $nature = wallet_post_string('expense_nature');
+            if ($accountId === false || !wallet_valid_category($category) || !wallet_valid_amount($amount)
+                || strlen($description) > 255 || !wallet_valid_date($expenseDate)
+                || !is_string($_POST['expense_nature'] ?? '') || !array_key_exists($nature, $expenseNatureOptions)
+                || ($action === 'update_expense' && $expenseId === false)) {
+                wallet_set_flash('error', 'Check the expense details and try again.');
             } else {
-                $pdo->beginTransaction();
-                $existingStatement = $pdo->prepare(
-                    'SELECT wallet_id, amount FROM transactions
-                     WHERE id = :id AND user_id = :user_id AND amount < 0
-                     FOR UPDATE'
-                );
-                $existingStatement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
-                $existingExpense = $existingStatement->fetch();
-
-                if ($existingExpense === false) {
-                    $pdo->rollBack();
-                    wallet_set_flash('error', 'That expense could not be found.');
-                } else {
-                    $parameters['id'] = $expenseId;
-                    $statement = $pdo->prepare(
-                        'UPDATE transactions
-                         SET wallet_id = :account_id,
-                            category = :category,
-                            amount = :amount,
-                            description = :description,
-                            expense_nature = :expense_nature,
-                            transaction_date = :transaction_date
-                         WHERE id = :id AND user_id = :user_id AND amount < 0'
-                    );
-                    $statement->execute($parameters);
-                    wallet_apply_transaction_to_current_balance(
-                        $pdo,
-                        $walletUserId,
-                        (int) $existingExpense['wallet_id'],
-                        (string) $existingExpense['amount'],
-                        true
-                    );
-                    wallet_apply_transaction_to_current_balance(
-                        $pdo,
-                        $walletUserId,
-                        (int) $accountId,
-                        $parameters['amount']
-                    );
-                    $pdo->commit();
-                    wallet_set_flash('success', 'Expense updated.');
-                }
+                wallet_call_procedure($pdo, 'sp_save_transaction', [
+                    $walletUserId, $action === 'add_expense' ? null : $expenseId, $accountId, $category,
+                    '-' . $amount, $description === '' ? null : $description, $expenseDate . ' 12:00:00',
+                    $nature === '' ? null : $nature,
+                ]);
+                wallet_set_flash('success', $action === 'add_expense' ? 'Expense added to your wallet.' : 'Expense updated.');
             }
-        }
-    } elseif ($action === 'delete_expense') {
-        $expenseId = filter_var($_POST['expense_id'] ?? null, FILTER_VALIDATE_INT);
-        if ($expenseId === false) {
-            wallet_set_flash('error', 'That expense could not be found.');
-        } else {
-            $pdo->beginTransaction();
-            $existingStatement = $pdo->prepare(
-                'SELECT wallet_id, amount FROM transactions
-                 WHERE id = :id AND user_id = :user_id AND amount < 0
-                 FOR UPDATE'
-            );
-            $existingStatement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
-            $existingExpense = $existingStatement->fetch();
-
-            if ($existingExpense === false) {
-                $pdo->rollBack();
+        } elseif ($action === 'delete_expense') {
+            $expenseId = filter_var($_POST['expense_id'] ?? null, FILTER_VALIDATE_INT);
+            if ($expenseId === false) {
                 wallet_set_flash('error', 'That expense could not be found.');
             } else {
-                $statement = $pdo->prepare(
-                    'DELETE FROM transactions
-                     WHERE id = :id AND user_id = :user_id AND amount < 0'
-                );
-                $statement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
-                wallet_apply_transaction_to_current_balance(
-                    $pdo,
-                    $walletUserId,
-                    (int) $existingExpense['wallet_id'],
-                    (string) $existingExpense['amount'],
-                    true
-                );
-                $pdo->commit();
+                wallet_call_procedure($pdo, 'sp_delete_transaction', [$walletUserId, $expenseId, 'expense']);
                 wallet_set_flash('success', 'Expense deleted.');
             }
-        }
-    } elseif (in_array($action, ['create', 'update'], true)) {
-        $name = wallet_post_string('name');
-        $amount = wallet_post_string('amount');
-        $currency = strtoupper(wallet_post_string('currency_code'));
-        $period = wallet_post_string('period');
-        $startDate = wallet_post_string('start_date');
-        $requestedEndDate = wallet_post_string('end_date');
-        $recurringValue = $_POST['is_recurring'] ?? null;
-        $isRecurring = $recurringValue === '1';
-        $existingLimit = null;
-        if ($action === 'update' && $budgetId !== false) {
-            $existingLimitStatement = $pdo->prepare(
-                'SELECT is_recurring, end_date
-                 FROM expense_limits
-                 WHERE id = :id AND user_id = :user_id'
-            );
-            $existingLimitStatement->execute(['id' => $budgetId, 'user_id' => $walletUserId]);
-            $existingLimit = $existingLimitStatement->fetch() ?: null;
-        }
-        $endDate = $isRecurring
-            ? (
-                $existingLimit !== null
-                && (bool) $existingLimit['is_recurring']
-                && $existingLimit['end_date'] !== null
-                    ? (string) $existingLimit['end_date']
-                    : ''
-            )
-            : $requestedEndDate;
-        $categoryValue = wallet_post_string('category');
-        $category = $categoryValue === '' ? null : trim(
-            $categoryValue === 'other'
-                ? wallet_post_string('custom_category')
-                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : '')
-        );
-        $invalid = $name === ''
-            || strlen($name) > 120
-            || !wallet_valid_amount($amount)
-            || !wallet_valid_currency($currency)
-            || !in_array($currency, $currencies, true)
-            || !in_array($period, $periods, true)
-            || !wallet_valid_date($startDate)
-            || ($endDate !== '' && (!wallet_valid_date($endDate) || $endDate < $startDate))
-            || (!$isRecurring && $endDate !== '' && wallet_valid_date($startDate)
-                && wallet_valid_date($endDate)
-                && new DateTimeImmutable($endDate)
-                    < wallet_expense_limit_minimum_end_date(
-                        $period,
-                        new DateTimeImmutable($startDate)
-                    ))
-            || ($recurringValue !== null && $recurringValue !== '1')
-            || !is_string($_POST['category'] ?? '')
-            || ($category !== null && !wallet_valid_category($category))
-            || ($action === 'update' && ($budgetId === false || $existingLimit === null));
-
-        if ($invalid) {
-            wallet_set_flash('error', 'Check the limit details. An end date must include at least one full selected period after the start date.');
-        } else {
-            if ($action === 'create') {
-                $statement = $pdo->prepare(
-                    'INSERT INTO expense_limits
-                        (user_id, category, name, amount, currency_code, period, start_date, end_date, is_recurring)
-                     VALUES
-                        (:user_id, :category, :name, :amount, :currency_code, :period, :start_date, :end_date, :is_recurring)'
-                );
-                $statement->execute([
-                    'user_id' => $walletUserId,
-                    'category' => $category,
-                    'name' => $name,
-                    'amount' => $amount,
-                    'currency_code' => $currency,
-                    'period' => $period,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate === '' ? null : $endDate,
-                    'is_recurring' => $isRecurring ? 1 : 0,
-                ]);
-                wallet_set_flash('success', 'Budget created.');
-            } else {
-                $statement = $pdo->prepare(
-                    'UPDATE expense_limits
-                     SET category = :category,
-                        name = :name,
-                        amount = :amount,
-                        currency_code = :currency_code,
-                        period = :period,
-                        start_date = :start_date,
-                        end_date = :end_date,
-                        is_recurring = :is_recurring
-                     WHERE id = :id AND user_id = :user_id'
-                );
-                $statement->execute([
-                    'category' => $category,
-                    'name' => $name,
-                    'amount' => $amount,
-                    'currency_code' => $currency,
-                    'period' => $period,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate === '' ? null : $endDate,
-                    'is_recurring' => $isRecurring ? 1 : 0,
-                    'id' => $budgetId,
-                    'user_id' => $walletUserId,
-                ]);
-                wallet_set_flash('success', 'Budget updated.');
+        } elseif (in_array($action, ['create', 'update'], true)) {
+            $name = wallet_post_string('name');
+            $amount = wallet_post_string('amount');
+            $currency = strtoupper(wallet_post_string('currency_code'));
+            $period = wallet_post_string('period');
+            $startDate = wallet_post_string('start_date');
+            $endDate = wallet_post_string('end_date');
+            $recurringValue = $_POST['is_recurring'] ?? null;
+            $isRecurring = $recurringValue === '1';
+            $existingLimit = null;
+            if ($action === 'update' && $budgetId !== false) {
+                $query = $pdo->prepare('SELECT is_recurring,end_date FROM expense_limits WHERE id=:id AND user_id=:user_id');
+                $query->execute(['id' => $budgetId, 'user_id' => $walletUserId]);
+                $existingLimit = $query->fetch() ?: null;
             }
-        }
-    } elseif (in_array($action, ['stop_recurring', 'resume_recurring'], true) && $budgetId !== false) {
-        $endDate = $action === 'stop_recurring' ? $today->format('Y-m-d') : null;
-        $statement = $pdo->prepare(
-            'UPDATE expense_limits
-             SET end_date = :end_date
-             WHERE id = :id AND user_id = :user_id AND is_recurring = 1'
-        );
-        $statement->execute([
-            'end_date' => $endDate,
-            'id' => $budgetId,
-            'user_id' => $walletUserId,
-        ]);
-        if ($statement->rowCount() > 0) {
-            wallet_set_flash('success', $action === 'stop_recurring' ? 'Recurring expense limit stopped.' : 'Recurring expense limit resumed.');
-        } else {
-            wallet_set_flash('error', 'That recurring expense limit could not be updated.');
-        }
-    } elseif ($action === 'delete' && $budgetId !== false) {
-        $statement = $pdo->prepare('DELETE FROM expense_limits WHERE id = :id AND user_id = :user_id');
-        $statement->execute(['id' => $budgetId, 'user_id' => $walletUserId]);
-        wallet_set_flash('success', 'Budget deleted.');
-    } else {
-        wallet_set_flash('error', 'That budget action could not be completed.');
-    }
+            if ($isRecurring) {
+                $endDate = $existingLimit !== null && (bool) $existingLimit['is_recurring'] && $existingLimit['end_date'] !== null
+                    ? (string) $existingLimit['end_date'] : '';
+            }
+            $categoryValue = wallet_post_string('category');
+            $category = $categoryValue === '' ? null : trim($categoryValue === 'other'
+                ? wallet_post_string('custom_category')
+                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : ''));
 
+            $invalid = $name === '' || strlen($name) > 120 || !wallet_valid_amount($amount)
+                || !in_array($currency, $currencies, true) || !in_array($period, $periods, true)
+                || !wallet_valid_date($startDate)
+                || ($endDate !== '' && (!wallet_valid_date($endDate) || $endDate < $startDate))
+                || (!$isRecurring && $endDate !== '' && wallet_valid_date($startDate) && wallet_valid_date($endDate)
+                    && new DateTimeImmutable($endDate) < wallet_expense_limit_minimum_end_date($period, new DateTimeImmutable($startDate)))
+                || ($recurringValue !== null && $recurringValue !== '1')
+                || !is_string($_POST['category'] ?? '') || ($category !== null && !wallet_valid_category($category))
+                || ($action === 'update' && ($budgetId === false || $existingLimit === null));
+            if ($invalid) {
+                wallet_set_flash('error', 'Check the limit details. An end date must include at least one full selected period after the start date.');
+            } else {
+                wallet_call_procedure($pdo, 'sp_save_expense_limit', [
+                    $walletUserId, $action === 'create' ? null : $budgetId, $name, $category, $amount, $currency,
+                    $period, $startDate, $endDate === '' ? null : $endDate, $isRecurring ? 1 : 0,
+                ]);
+                wallet_set_flash('success', $action === 'create' ? 'Budget created.' : 'Budget updated.');
+            }
+        } elseif (in_array($action, ['stop_recurring', 'resume_recurring'], true) && $budgetId !== false) {
+            wallet_call_procedure($pdo, 'sp_set_expense_limit_recurring', [
+                $walletUserId, $budgetId, $action === 'resume_recurring' ? 1 : 0, $today->format('Y-m-d'),
+            ]);
+            wallet_set_flash('success', $action === 'stop_recurring' ? 'Recurring expense limit stopped.' : 'Recurring expense limit resumed.');
+        } elseif ($action === 'delete' && $budgetId !== false) {
+            wallet_call_procedure($pdo, 'sp_delete_expense_limit', [$walletUserId, $budgetId]);
+            wallet_set_flash('success', 'Budget deleted.');
+        } else {
+            wallet_set_flash('error', 'That budget action could not be completed.');
+        }
+    } catch (PDOException $error) {
+        wallet_set_flash('error', wallet_procedure_error($error));
+    }
     header('Location: expenses.php');
     exit;
 }
@@ -338,72 +148,16 @@ $accountStatement->execute(['user_id' => $walletUserId]);
 $activeAccounts = $accountStatement->fetchAll();
 
 $expenseEntriesStatement = $pdo->prepare(
-    'SELECT t.id, -t.amount AS amount, t.description, t.transaction_date, t.expense_nature,
-            a.name AS account_name, a.currency_code, a.is_archived,
-            COALESCE(t.category, \'Uncategorized\') AS category_name
-     FROM transactions t
-     INNER JOIN wallets a ON a.id = t.wallet_id AND a.user_id = t.user_id
-     WHERE t.user_id = :user_id AND t.amount < 0
-     ORDER BY t.transaction_date DESC, t.id DESC
-     LIMIT 100'
+    'SELECT id,-amount AS amount,description,transaction_date,expense_nature,account_name,currency_code,is_archived,category_name
+     FROM vw_transaction_details WHERE user_id=:user_id AND amount<0
+     ORDER BY transaction_date DESC,id DESC LIMIT 100'
 );
 $expenseEntriesStatement->execute(['user_id' => $walletUserId]);
 $expenseEntries = $expenseEntriesStatement->fetchAll();
 
-$budgetStatement = $pdo->prepare(
-    'SELECT b.id, b.name, b.amount, b.currency_code, b.period, b.start_date, b.end_date, b.is_recurring, b.category,
-            COALESCE(b.category, \'All categories\') AS category_name
-     FROM expense_limits b
-     WHERE b.user_id = :user_id
-     ORDER BY b.start_date DESC, b.name'
-);
-$budgetStatement->execute(['user_id' => $walletUserId]);
-$budgets = $budgetStatement->fetchAll();
-
-$expenseStatement = $pdo->prepare(
-    'SELECT COALESCE(SUM(-t.amount), 0)
-     FROM transactions t
-     INNER JOIN wallets a ON a.id = t.wallet_id
-     WHERE t.user_id = :user_id
-        AND a.user_id = :account_user_id
-        AND a.currency_code = :currency
-        AND a.is_archived = 0
-        AND t.amount < 0
-        AND t.transaction_date >= :range_start
-        AND t.transaction_date < :range_end
-        AND (:include_all_categories = 1 OR t.category = :category)'
-);
-
-foreach ($budgets as &$budget) {
-    $period = (string) $budget['period'];
-    $activeStart = new DateTimeImmutable((string) $budget['start_date']);
-    $activeEnd = $budget['end_date'] !== null
-        ? new DateTimeImmutable((string) $budget['end_date'])
-        : null;
-    $range = wallet_expense_limit_date_range(
-        $period,
-        $activeStart,
-        $today,
-        (bool) $budget['is_recurring'],
-        $activeEnd
-    );
-
-    $budget['spent'] = 0.0;
-    $budget['range_active'] = $range !== null;
-    if ($range !== null) {
-        $expenseStatement->execute([
-            'user_id' => $walletUserId,
-            'account_user_id' => $walletUserId,
-            'currency' => $budget['currency_code'],
-            'range_start' => $range['start']->format('Y-m-d'),
-            'range_end' => $range['end']->format('Y-m-d'),
-            'include_all_categories' => $budget['category'] === null ? 1 : 0,
-            'category' => $budget['category'],
-        ]);
-        $budget['spent'] = (float) $expenseStatement->fetchColumn();
-    }
-}
-unset($budget);
+$budgets = wallet_load_expense_limits($pdo, $walletUserId, $today);
+$overspendingAlerts = wallet_overspending_alerts($budgets);
+$overspendingNotifications = wallet_take_overspending_notifications($overspendingAlerts, $walletUserId);
 
 $defaultStart = $today->format('Y-m-d');
 $appTitle = 'Expenses';
@@ -429,6 +183,8 @@ require __DIR__ . '/includes/app_shell_start.php';
         <?php endif; ?>
     </div>
 </section>
+
+<?php require __DIR__ . '/includes/overspending_alerts.php'; ?>
 
 <?php if ($currencies === []): ?>
     <section class="rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
@@ -494,7 +250,7 @@ require __DIR__ . '/includes/app_shell_start.php';
     <?php endif; ?>
 
     <?php if ($currencies !== []): ?>
-    <section class="space-y-4">
+    <section id="expense-limits" class="space-y-4">
         <div class="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
             <div>
                 <h2 class="font-semibold tracking-tight">Expense limits</h2>
@@ -513,7 +269,7 @@ require __DIR__ . '/includes/app_shell_start.php';
                 $limit = (float) $budget['amount'];
                 $spent = (float) $budget['spent'];
                 $progress = $limit > 0 ? min(100, (int) round($spent / $limit * 100)) : 0;
-                $isOver = $spent > $limit;
+                $isOver = $budget['over_cents'] > 0;
                 ?>
                 <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
                     <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -565,43 +321,6 @@ require __DIR__ . '/includes/app_shell_start.php';
     </section>
     <?php endif; ?>
 <?php endif; ?>
-    <style>
-        @keyframes expense-modal-enter {
-            from { opacity: 0; transform: translateY(0.5rem) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes expense-modal-exit {
-            to { opacity: 0; transform: translateY(0.25rem) scale(0.98); }
-        }
-        @keyframes expense-backdrop-enter {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        @keyframes expense-backdrop-exit {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-        dialog[data-expense-modal] {
-            position: fixed;
-            inset: auto;
-            top: var(--expense-modal-top, 50%);
-            left: 50%;
-            margin: 0;
-            translate: -50% -50%;
-        }
-        dialog[data-expense-modal][open] { animation: expense-modal-enter 160ms ease-out both; }
-        dialog[data-expense-modal][open]::backdrop { animation: expense-backdrop-enter 160ms ease-out both; }
-        dialog[data-expense-modal][data-closing] { animation: expense-modal-exit 120ms ease-in both; }
-        dialog[data-expense-modal][data-closing]::backdrop { animation: expense-backdrop-exit 120ms ease-in both; }
-        @media (prefers-reduced-motion: reduce) {
-            dialog[data-expense-modal][open],
-            dialog[data-expense-modal][open]::backdrop,
-            dialog[data-expense-modal][data-closing],
-            dialog[data-expense-modal][data-closing]::backdrop {
-                animation-duration: 1ms;
-            }
-        }
-    </style>
     <?php if ($activeAccounts !== []): ?>
         <dialog id="expense-modal-expense" data-expense-modal <?= $editExpense !== null ? 'data-open-on-load' : '' ?> aria-labelledby="expense-modal-expense-title" class="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/40">
             <div class="p-5 sm:p-6">

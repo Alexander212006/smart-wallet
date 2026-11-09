@@ -11,177 +11,58 @@ $today = new DateTimeImmutable('today');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
-
     $action = wallet_post_string('action');
-    $goalId = filter_var($_POST['goal_id'] ?? null, FILTER_VALIDATE_INT);
-
-    if (in_array($action, ['create', 'update'], true)) {
-        $name = wallet_post_string('name');
-        $description = wallet_post_string('description');
-        $targetAmount = wallet_post_string('target_amount');
-        $currency = strtoupper(wallet_post_string('currency_code'));
-        $targetDate = wallet_post_string('target_date');
-        $invalid = $name === ''
-            || strlen($name) > 120
-            || strlen($description) > 65535
-            || !wallet_valid_amount($targetAmount)
-            || !wallet_valid_currency($currency)
-            || !in_array($currency, $currencies, true)
-            || ($action === 'create' && !wallet_valid_date($targetDate))
-            || ($action === 'update' && $targetDate !== '' && !wallet_valid_date($targetDate))
-            || ($action === 'update' && $goalId === false);
-
-        if ($invalid) {
-            wallet_set_flash('error', 'Check the goal details and try again.');
-        } elseif ($action === 'create') {
-            $statement = $pdo->prepare(
-                'INSERT INTO savings_goals (user_id, name, description, target_amount, currency_code, target_date)
-                 VALUES (:user_id, :name, :description, :target_amount, :currency_code, :target_date)'
-            );
-            $statement->execute([
-                'user_id' => $walletUserId,
-                'name' => $name,
-                'description' => $description === '' ? null : $description,
-                'target_amount' => $targetAmount,
-                'currency_code' => $currency,
-                'target_date' => $targetDate === '' ? null : $targetDate,
-            ]);
-            wallet_set_flash('success', 'Savings goal created.');
-        } else {
-            $currencyStatement = $pdo->prepare(
-                'SELECT g.currency_code,
-                        EXISTS(SELECT 1 FROM savings_contributions sc WHERE sc.savings_goal_id = g.id) AS has_contributions
-                 FROM savings_goals g
-                 WHERE g.id = :id AND g.user_id = :user_id'
-            );
-            $currencyStatement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
-            $currentGoal = $currencyStatement->fetch();
-
-            if ($currentGoal === false) {
-                wallet_set_flash('error', 'That savings goal could not be found.');
-            } elseif ((bool) $currentGoal['has_contributions'] && $currentGoal['currency_code'] !== $currency) {
-                wallet_set_flash('error', 'A goal with contributions cannot change currency.');
+    try {
+        $goalId = filter_var($_POST['goal_id'] ?? null, FILTER_VALIDATE_INT);
+        if (in_array($action, ['create', 'update'], true)) {
+            $name = wallet_post_string('name');
+            $description = wallet_post_string('description');
+            $targetAmount = wallet_post_string('target_amount');
+            $currency = strtoupper(wallet_post_string('currency_code'));
+            $targetDate = wallet_post_string('target_date');
+            if ($name === '' || strlen($name) > 120 || strlen($description) > 65535
+                || !wallet_valid_amount($targetAmount) || !in_array($currency, $currencies, true)
+                || ($action === 'create' && !wallet_valid_date($targetDate))
+                || ($targetDate !== '' && !wallet_valid_date($targetDate))
+                || ($action === 'update' && $goalId === false)) {
+                wallet_set_flash('error', 'Check the goal details and try again.');
             } else {
-                $statement = $pdo->prepare(
-                    'UPDATE savings_goals
-                     SET name = :name,
-                        description = :description,
-                        target_amount = :target_amount,
-                        currency_code = :currency_code,
-                        target_date = :target_date
-                     WHERE id = :id AND user_id = :user_id'
-                );
-                $statement->execute([
-                    'name' => $name,
-                    'description' => $description === '' ? null : $description,
-                    'target_amount' => $targetAmount,
-                    'currency_code' => $currency,
-                    'target_date' => $targetDate === '' ? null : $targetDate,
-                    'id' => $goalId,
-                    'user_id' => $walletUserId,
+                wallet_call_procedure($pdo, 'sp_save_savings_goal', [
+                    $walletUserId, $action === 'create' ? null : $goalId, $name, $description === '' ? null : $description,
+                    $targetAmount, $currency, $targetDate === '' ? null : $targetDate,
                 ]);
-                wallet_set_flash('success', 'Savings goal updated.');
+                wallet_set_flash('success', $action === 'create' ? 'Savings goal created.' : 'Savings goal updated.');
             }
-        }
-    } elseif ($action === 'status' && $goalId !== false) {
-        $status = wallet_post_string('status');
-        if (!in_array($status, $statuses, true)) {
-            wallet_set_flash('error', 'Choose a valid goal status.');
-        } else {
-            $statement = $pdo->prepare(
-                'UPDATE savings_goals SET status = :status WHERE id = :id AND user_id = :user_id'
-            );
-            $statement->execute([
-                'status' => $status,
-                'id' => $goalId,
-                'user_id' => $walletUserId,
-            ]);
-            wallet_set_flash('success', 'Goal status updated.');
-        }
-    } elseif ($action === 'delete' && $goalId !== false) {
-        $statement = $pdo->prepare(
-            'DELETE FROM savings_goals WHERE id = :id AND user_id = :user_id'
-        );
-        $statement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
-        $deleted = $statement->rowCount() > 0;
-        wallet_set_flash(
-            $deleted ? 'success' : 'error',
-            $deleted ? 'Savings goal and its contributions deleted.' : 'That savings goal could not be found.'
-        );
-    } elseif ($action === 'contribute' && $goalId !== false) {
-        $amount = wallet_post_string('amount');
-        $note = wallet_post_string('note');
-        $accountValue = wallet_post_string('account_id');
-        $accountId = $accountValue === '' ? null : filter_var($accountValue, FILTER_VALIDATE_INT);
-
-        $goalStatement = $pdo->prepare(
-            'SELECT id, target_amount, currency_code
-             FROM savings_goals
-             WHERE id = :id AND user_id = :user_id AND status = \'active\''
-        );
-        $goalStatement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
-        $goal = $goalStatement->fetch();
-
-        $accountIsValid = true;
-        if ($accountId !== null) {
-            if ($accountId === false) {
-                $accountIsValid = false;
+        } elseif ($action === 'status' && $goalId !== false) {
+            $status = wallet_post_string('status');
+            if (!in_array($status, $statuses, true)) {
+                wallet_set_flash('error', 'Choose a valid goal status.');
             } else {
-                $accountStatement = $pdo->prepare(
-                    'SELECT id FROM wallets
-                     WHERE id = :id AND user_id = :user_id
-                        AND currency_code = :currency AND is_archived = 0'
-                );
-                $accountStatement->execute([
-                    'id' => $accountId,
-                    'user_id' => $walletUserId,
-                    'currency' => $goal['currency_code'] ?? '',
+                wallet_call_procedure($pdo, 'sp_set_savings_goal_status', [$walletUserId, $goalId, $status]);
+                wallet_set_flash('success', 'Goal status updated.');
+            }
+        } elseif ($action === 'delete' && $goalId !== false) {
+            wallet_call_procedure($pdo, 'sp_delete_savings_goal', [$walletUserId, $goalId]);
+            wallet_set_flash('success', 'Savings goal and its contributions deleted.');
+        } elseif ($action === 'contribute' && $goalId !== false) {
+            $amount = wallet_post_string('amount');
+            $note = wallet_post_string('note');
+            $accountValue = wallet_post_string('account_id');
+            $accountId = $accountValue === '' ? null : filter_var($accountValue, FILTER_VALIDATE_INT);
+            if (!wallet_valid_amount($amount) || strlen($note) > 255 || $accountId === false) {
+                wallet_set_flash('error', 'Enter a valid contribution and choose a matching, active account.');
+            } else {
+                $result = wallet_call_procedure($pdo, 'sp_contribute_savings', [
+                    $walletUserId, $goalId, $accountId, $amount, date('Y-m-d H:i:s'), $note === '' ? null : $note,
                 ]);
-                $accountIsValid = $accountStatement->fetchColumn() !== false;
+                wallet_set_flash('success', ($result[0]['status'] ?? '') === 'completed'
+                    ? 'Contribution recorded. Goal target reached!' : 'Contribution recorded.');
             }
-        }
-
-        if ($goal === false) {
-            wallet_set_flash('error', 'That active savings goal could not be found.');
-        } elseif (!wallet_valid_amount($amount) || strlen($note) > 255 || !$accountIsValid) {
-            wallet_set_flash('error', 'Enter a valid contribution and choose a matching, active account.');
         } else {
-            $pdo->beginTransaction();
-            $insertStatement = $pdo->prepare(
-                'INSERT INTO savings_contributions (savings_goal_id, wallet_id, amount, contribution_date, note)
-                 VALUES (:goal_id, :account_id, :amount, :contribution_date, :note)'
-            );
-            $insertStatement->execute([
-                'goal_id' => $goalId,
-                'account_id' => $accountId,
-                'amount' => $amount,
-                'contribution_date' => date('Y-m-d H:i:s'),
-                'note' => $note === '' ? null : $note,
-            ]);
-
-            $totalStatement = $pdo->prepare(
-                'SELECT COALESCE(SUM(amount), 0)
-                 FROM savings_contributions
-                 WHERE savings_goal_id = :goal_id'
-            );
-            $totalStatement->execute(['goal_id' => $goalId]);
-            if ((float) $totalStatement->fetchColumn() >= (float) $goal['target_amount']) {
-                $completeStatement = $pdo->prepare(
-                    'UPDATE savings_goals SET status = \'completed\' WHERE id = :id AND user_id = :user_id'
-                );
-                $completeStatement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
-                wallet_set_flash('success', 'Contribution recorded. Goal target reached!');
-            } else {
-                wallet_set_flash('success', 'Contribution recorded.');
-            }
-            $pdo->commit();
+            wallet_set_flash('error', 'That goal action could not be completed.');
         }
-    } else {
-        wallet_set_flash('error', 'That goal action could not be completed.');
-    }
-
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
+    } catch (PDOException $error) {
+        wallet_set_flash('error', wallet_procedure_error($error));
     }
     header('Location: savings.php');
     exit;
@@ -199,15 +80,8 @@ if ($editId !== false && $editId !== null) {
 }
 
 $goalStatement = $pdo->prepare(
-    'SELECT g.id, g.name, g.description, g.target_amount, g.currency_code, g.target_date, g.status,
-            COALESCE(SUM(sc.amount), 0) AS saved,
-            COUNT(sc.id) AS contribution_count,
-            MIN(sc.contribution_date) AS first_contribution_date
-     FROM savings_goals g
-     LEFT JOIN savings_contributions sc ON sc.savings_goal_id = g.id
-     WHERE g.user_id = :user_id
-     GROUP BY g.id, g.name, g.description, g.target_amount, g.currency_code, g.target_date, g.status
-     ORDER BY FIELD(g.status, \'active\', \'paused\', \'completed\', \'cancelled\'), g.target_date IS NULL, g.target_date'
+    'SELECT * FROM vw_savings_goal_progress WHERE user_id = :user_id
+     ORDER BY FIELD(status, \'active\', \'paused\', \'completed\', \'cancelled\'), target_date IS NULL, target_date'
 );
 $goalStatement->execute(['user_id' => $walletUserId]);
 $goals = $goalStatement->fetchAll();

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/database_procedures.php';
+
 function wallet_spending_month(?string $requestedMonth, DateTimeImmutable $today): DateTimeImmutable
 {
     $currentMonth = $today->modify('first day of this month')->setTime(0, 0);
@@ -27,24 +29,10 @@ function wallet_load_spending_analysis(
 ): array {
     $month = wallet_spending_month($month->format('Y-m'), $today);
     $periodEnd = min($month->modify('+1 month'), $today->setTime(0, 0)->modify('+1 day'));
-    $statement = $pdo->prepare(
-        'SELECT t.transaction_date, -t.amount AS amount,
-                COALESCE(t.category, \'Uncategorized\') AS category_name, t.expense_nature
-         FROM transactions t
-         INNER JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
-         WHERE t.user_id = :user_id AND w.currency_code = :currency
-            AND w.is_archived = 0 AND t.amount < 0
-            AND t.transaction_date >= :period_start AND t.transaction_date < :period_end
-         ORDER BY t.transaction_date, t.id'
-    );
-    $statement->execute([
-        'user_id' => $userId,
-        'currency' => $currency,
-        'period_start' => $month->modify('-5 months')->format('Y-m-d H:i:s'),
-        'period_end' => $periodEnd->format('Y-m-d H:i:s'),
+    $rows = wallet_call_procedure($pdo, 'sp_get_spending_rows', [
+        $userId, $currency, $month->modify('-5 months')->format('Y-m-d'), $periodEnd->format('Y-m-d'),
     ]);
-
-    return wallet_build_spending_analysis($statement->fetchAll(PDO::FETCH_ASSOC), $month, $today);
+    return wallet_build_spending_analysis($rows, $month, $today);
 }
 
 function wallet_spending_amount_cents(string $amount): ?int
