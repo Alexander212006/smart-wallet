@@ -1,0 +1,380 @@
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/includes/app.php';
+
+$pdo = getDatabaseConnection();
+$currencies = wallet_currency_options($pdo, $walletUserId);
+$statuses = ['active', 'paused', 'completed', 'cancelled'];
+$today = new DateTimeImmutable('today');
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    wallet_require_valid_post();
+
+    $action = wallet_post_string('action');
+    $goalId = filter_var($_POST['goal_id'] ?? null, FILTER_VALIDATE_INT);
+
+    if (in_array($action, ['create', 'update'], true)) {
+        $name = wallet_post_string('name');
+        $description = wallet_post_string('description');
+        $targetAmount = wallet_post_string('target_amount');
+        $currency = strtoupper(wallet_post_string('currency_code'));
+        $targetDate = wallet_post_string('target_date');
+        $invalid = $name === ''
+            || strlen($name) > 120
+            || strlen($description) > 65535
+            || !wallet_valid_amount($targetAmount)
+            || !wallet_valid_currency($currency)
+            || !in_array($currency, $currencies, true)
+            || ($targetDate !== '' && !wallet_valid_date($targetDate))
+            || ($action === 'update' && $goalId === false);
+
+        if ($invalid) {
+            wallet_set_flash('error', 'Check the goal details and try again.');
+        } elseif ($action === 'create') {
+            $statement = $pdo->prepare(
+                'INSERT INTO savings_goals (user_id, name, description, target_amount, currency_code, target_date)
+                 VALUES (:user_id, :name, :description, :target_amount, :currency_code, :target_date)'
+            );
+            $statement->execute([
+                'user_id' => $walletUserId,
+                'name' => $name,
+                'description' => $description === '' ? null : $description,
+                'target_amount' => $targetAmount,
+                'currency_code' => $currency,
+                'target_date' => $targetDate === '' ? null : $targetDate,
+            ]);
+            wallet_set_flash('success', 'Savings goal created.');
+        } else {
+            $currencyStatement = $pdo->prepare(
+                'SELECT g.currency_code,
+                        EXISTS(SELECT 1 FROM savings_contributions sc WHERE sc.savings_goal_id = g.id) AS has_contributions
+                 FROM savings_goals g
+                 WHERE g.id = :id AND g.user_id = :user_id'
+            );
+            $currencyStatement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
+            $currentGoal = $currencyStatement->fetch();
+
+            if ($currentGoal === false) {
+                wallet_set_flash('error', 'That savings goal could not be found.');
+            } elseif ((bool) $currentGoal['has_contributions'] && $currentGoal['currency_code'] !== $currency) {
+                wallet_set_flash('error', 'A goal with contributions cannot change currency.');
+            } else {
+                $statement = $pdo->prepare(
+                    'UPDATE savings_goals
+                     SET name = :name,
+                        description = :description,
+                        target_amount = :target_amount,
+                        currency_code = :currency_code,
+                        target_date = :target_date
+                     WHERE id = :id AND user_id = :user_id'
+                );
+                $statement->execute([
+                    'name' => $name,
+                    'description' => $description === '' ? null : $description,
+                    'target_amount' => $targetAmount,
+                    'currency_code' => $currency,
+                    'target_date' => $targetDate === '' ? null : $targetDate,
+                    'id' => $goalId,
+                    'user_id' => $walletUserId,
+                ]);
+                wallet_set_flash('success', 'Savings goal updated.');
+            }
+        }
+    } elseif ($action === 'status' && $goalId !== false) {
+        $status = wallet_post_string('status');
+        if (!in_array($status, $statuses, true)) {
+            wallet_set_flash('error', 'Choose a valid goal status.');
+        } else {
+            $statement = $pdo->prepare(
+                'UPDATE savings_goals SET status = :status WHERE id = :id AND user_id = :user_id'
+            );
+            $statement->execute([
+                'status' => $status,
+                'id' => $goalId,
+                'user_id' => $walletUserId,
+            ]);
+            wallet_set_flash('success', 'Goal status updated.');
+        }
+    } elseif ($action === 'contribute' && $goalId !== false) {
+        $amount = wallet_post_string('amount');
+        $note = wallet_post_string('note');
+        $accountValue = wallet_post_string('account_id');
+        $accountId = $accountValue === '' ? null : filter_var($accountValue, FILTER_VALIDATE_INT);
+
+        $goalStatement = $pdo->prepare(
+            'SELECT id, target_amount, currency_code
+             FROM savings_goals
+             WHERE id = :id AND user_id = :user_id AND status = \'active\''
+        );
+        $goalStatement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
+        $goal = $goalStatement->fetch();
+
+        $accountIsValid = true;
+        if ($accountId !== null) {
+            if ($accountId === false) {
+                $accountIsValid = false;
+            } else {
+                $accountStatement = $pdo->prepare(
+                    'SELECT id FROM accounts
+                     WHERE id = :id AND user_id = :user_id
+                        AND currency_code = :currency AND is_archived = 0'
+                );
+                $accountStatement->execute([
+                    'id' => $accountId,
+                    'user_id' => $walletUserId,
+                    'currency' => $goal['currency_code'] ?? '',
+                ]);
+                $accountIsValid = $accountStatement->fetchColumn() !== false;
+            }
+        }
+
+        if ($goal === false) {
+            wallet_set_flash('error', 'That active savings goal could not be found.');
+        } elseif (!wallet_valid_amount($amount) || strlen($note) > 255 || !$accountIsValid) {
+            wallet_set_flash('error', 'Enter a valid contribution and choose a matching, active account.');
+        } else {
+            $pdo->beginTransaction();
+            $insertStatement = $pdo->prepare(
+                'INSERT INTO savings_contributions (savings_goal_id, account_id, amount, contribution_date, note)
+                 VALUES (:goal_id, :account_id, :amount, :contribution_date, :note)'
+            );
+            $insertStatement->execute([
+                'goal_id' => $goalId,
+                'account_id' => $accountId,
+                'amount' => $amount,
+                'contribution_date' => date('Y-m-d H:i:s'),
+                'note' => $note === '' ? null : $note,
+            ]);
+
+            $totalStatement = $pdo->prepare(
+                'SELECT COALESCE(SUM(amount), 0)
+                 FROM savings_contributions
+                 WHERE savings_goal_id = :goal_id'
+            );
+            $totalStatement->execute(['goal_id' => $goalId]);
+            if ((float) $totalStatement->fetchColumn() >= (float) $goal['target_amount']) {
+                $completeStatement = $pdo->prepare(
+                    'UPDATE savings_goals SET status = \'completed\' WHERE id = :id AND user_id = :user_id'
+                );
+                $completeStatement->execute(['id' => $goalId, 'user_id' => $walletUserId]);
+                wallet_set_flash('success', 'Contribution recorded. Goal target reached!');
+            } else {
+                wallet_set_flash('success', 'Contribution recorded.');
+            }
+            $pdo->commit();
+        }
+    } else {
+        wallet_set_flash('error', 'That goal action could not be completed.');
+    }
+
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    header('Location: savings.php');
+    exit;
+}
+
+$editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
+$editGoal = null;
+if ($editId !== false && $editId !== null) {
+    $editStatement = $pdo->prepare(
+        'SELECT id, name, description, target_amount, currency_code, target_date
+         FROM savings_goals WHERE id = :id AND user_id = :user_id'
+    );
+    $editStatement->execute(['id' => $editId, 'user_id' => $walletUserId]);
+    $editGoal = $editStatement->fetch() ?: null;
+}
+
+$goalStatement = $pdo->prepare(
+    'SELECT g.id, g.name, g.description, g.target_amount, g.currency_code, g.target_date, g.status,
+            COALESCE(SUM(sc.amount), 0) AS saved
+     FROM savings_goals g
+     LEFT JOIN savings_contributions sc ON sc.savings_goal_id = g.id
+     WHERE g.user_id = :user_id
+     GROUP BY g.id, g.name, g.description, g.target_amount, g.currency_code, g.target_date, g.status
+     ORDER BY FIELD(g.status, \'active\', \'paused\', \'completed\', \'cancelled\'), g.target_date IS NULL, g.target_date'
+);
+$goalStatement->execute(['user_id' => $walletUserId]);
+$goals = $goalStatement->fetchAll();
+
+$accountStatement = $pdo->prepare(
+    'SELECT id, name, currency_code
+     FROM accounts
+     WHERE user_id = :user_id AND is_archived = 0
+     ORDER BY name'
+);
+$accountStatement->execute(['user_id' => $walletUserId]);
+$accounts = $accountStatement->fetchAll();
+
+$contributionStatement = $pdo->prepare(
+    'SELECT sc.savings_goal_id, sc.amount, sc.contribution_date, sc.note, a.name AS account_name
+     FROM savings_contributions sc
+     INNER JOIN savings_goals g ON g.id = sc.savings_goal_id AND g.user_id = :user_id
+     LEFT JOIN accounts a ON a.id = sc.account_id AND a.user_id = :account_user_id
+     ORDER BY sc.contribution_date DESC, sc.id DESC
+     LIMIT 100'
+);
+$contributionStatement->execute(['user_id' => $walletUserId, 'account_user_id' => $walletUserId]);
+$contributionsByGoal = [];
+foreach ($contributionStatement->fetchAll() as $contribution) {
+    $contributionsByGoal[$contribution['savings_goal_id']][] = $contribution;
+}
+
+$appTitle = 'Savings';
+$activePage = 'savings';
+require __DIR__ . '/includes/app_shell_start.php';
+?>
+<section class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <div>
+        <p class="text-sm font-medium text-emerald-800">Keep moving forward</p>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Savings</h1>
+        <p class="mt-2 text-sm text-slate-500">Give your plans a target, then celebrate every contribution.</p>
+    </div>
+    <span class="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"><?= count(array_filter($goals, static fn (array $goal): bool => $goal['status'] === 'active')) ?> active</span>
+</section>
+
+<?php if ($currencies === []): ?>
+    <section class="rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
+        <h2 class="font-semibold">Create your wallet first</h2>
+        <p class="mt-2 text-sm text-slate-500">Savings goals use the currency of your wallet.</p>
+        <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Go to Create wallet</a>
+    </section>
+<?php else: ?>
+    <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
+        <section class="space-y-4">
+            <?php if ($goals === []): ?>
+                <div class="rounded-2xl border border-slate-200/80 bg-white px-5 py-10 text-center shadow-sm">
+                    <h2 class="font-semibold">Start with a goal</h2>
+                    <p class="mt-2 text-sm text-slate-500">Plan a trip, build an emergency fund, or save for something you love.</p>
+                </div>
+            <?php endif; ?>
+            <?php foreach ($goals as $goal): ?>
+                <?php
+                $target = (float) $goal['target_amount'];
+                $saved = (float) $goal['saved'];
+                $progress = $target > 0 ? min(100, (int) round($saved / $target * 100)) : 0;
+                $goalContributions = array_slice($contributionsByGoal[$goal['id']] ?? [], 0, 3);
+                ?>
+                <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+                    <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h2 class="font-semibold"><?= wallet_escape((string) $goal['name']) ?></h2>
+                                <span class="rounded-full px-2.5 py-1 text-[11px] font-medium capitalize <?= $goal['status'] === 'active' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600' ?>"><?= wallet_escape((string) $goal['status']) ?></span>
+                            </div>
+                            <?php if ($goal['description'] !== null && $goal['description'] !== ''): ?>
+                                <p class="mt-1 text-sm text-slate-500"><?= wallet_escape((string) $goal['description']) ?></p>
+                            <?php endif; ?>
+                            <p class="mt-1 text-xs text-slate-400"><?= $goal['target_date'] !== null ? 'Target date ' . wallet_escape(date('M j, Y', strtotime((string) $goal['target_date']))) : 'No target date' ?></p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <a href="savings.php?edit=<?= (int) $goal['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
+                            <?php if (in_array($goal['status'], ['active', 'paused'], true)): ?>
+                                <form method="post" action="savings.php">
+                                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                    <input type="hidden" name="action" value="status">
+                                    <input type="hidden" name="goal_id" value="<?= (int) $goal['id'] ?>">
+                                    <input type="hidden" name="status" value="<?= $goal['status'] === 'active' ? 'paused' : 'active' ?>">
+                                    <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100"><?= $goal['status'] === 'active' ? 'Pause' : 'Resume' ?></button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="mt-5 flex items-center justify-between gap-3 text-sm">
+                        <span class="font-medium text-slate-700"><?= wallet_escape((string) $goal['currency_code']) ?> <?= number_format($saved, 2) ?> saved</span>
+                        <span class="text-slate-500">of <?= wallet_escape((string) $goal['currency_code']) ?> <?= number_format($target, 2) ?></span>
+                    </div>
+                    <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full <?= $goal['status'] === 'completed' ? 'bg-sky-500' : 'bg-emerald-500' ?>" style="width: <?= $progress ?>%"></div>
+                    </div>
+                    <p class="mt-2 text-xs text-slate-400"><?= $progress ?>% complete</p>
+                    <?php if ($goal['status'] === 'active'): ?>
+                        <form method="post" action="savings.php" class="mt-5 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-[1fr_1.2fr_auto] sm:items-end" data-confirm-title="Add this savings contribution?" data-confirm-description="This contribution will be recorded toward your savings goal." data-confirm-label="Add contribution">
+                            <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                            <input type="hidden" name="action" value="contribute">
+                            <input type="hidden" name="goal_id" value="<?= (int) $goal['id'] ?>">
+                            <div>
+                                <label for="amount-<?= (int) $goal['id'] ?>" class="mb-1.5 block text-xs font-medium text-slate-600">Add contribution</label>
+                                <input id="amount-<?= (int) $goal['id'] ?>" name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                            <div>
+                                <label for="account-<?= (int) $goal['id'] ?>" class="mb-1.5 block text-xs font-medium text-slate-600">Associated account <span class="font-normal text-slate-400">optional</span></label>
+                                <select id="account-<?= (int) $goal['id'] ?>" name="account_id" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
+                                    <option value="">Not specified</option>
+                                    <?php foreach ($accounts as $account): ?>
+                                        <?php if ($account['currency_code'] === $goal['currency_code']): ?>
+                                            <option value="<?= (int) $account['id'] ?>"><?= wallet_escape((string) $account['name']) ?></option>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <button type="submit" class="rounded-lg bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Add</button>
+                            <div class="sm:col-span-3">
+                                <label for="note-<?= (int) $goal['id'] ?>" class="sr-only">Contribution note</label>
+                                <input id="note-<?= (int) $goal['id'] ?>" name="note" type="text" maxlength="255" placeholder="Optional note" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                            <p class="text-xs leading-5 text-slate-500 sm:col-span-3">Contributions track goal progress only; they don’t create a bank transaction or change your account balance.</p>
+                        </form>
+                    <?php endif; ?>
+                    <?php if ($goalContributions !== []): ?>
+                        <div class="mt-5 border-t border-slate-100 pt-4">
+                            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Recent contributions</p>
+                            <div class="space-y-2">
+                                <?php foreach ($goalContributions as $contribution): ?>
+                                    <div class="flex items-center justify-between gap-3 text-xs">
+                                        <span class="truncate text-slate-500">
+                                            <?= wallet_escape((string) ($contribution['note'] ?: ($contribution['account_name'] ?: 'Contribution'))) ?>
+                                            · <?= wallet_escape(date('M j, Y', strtotime((string) $contribution['contribution_date']))) ?>
+                                        </span>
+                                        <span class="shrink-0 font-semibold text-slate-700"><?= wallet_escape((string) $goal['currency_code']) ?> <?= number_format((float) $contribution['amount'], 2) ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </article>
+            <?php endforeach; ?>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+            <h2 class="font-semibold tracking-tight"><?= $editGoal !== null ? 'Edit savings goal' : 'Create a goal' ?></h2>
+            <p class="mt-1 text-sm text-slate-500">Set a target and keep track of each contribution.</p>
+            <form method="post" action="savings.php" class="mt-5 space-y-4" <?= $editGoal === null ? 'data-confirm-title="Create this savings goal?" data-confirm-description="The goal will be added to your savings tracker." data-confirm-label="Create goal"' : '' ?>>
+                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                <input type="hidden" name="action" value="<?= $editGoal !== null ? 'update' : 'create' ?>">
+                <?php if ($editGoal !== null): ?><input type="hidden" name="goal_id" value="<?= (int) $editGoal['id'] ?>"><?php endif; ?>
+                <div>
+                    <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700">Goal name</label>
+                    <input id="name" name="name" maxlength="120" required value="<?= wallet_escape((string) ($editGoal['name'] ?? '')) ?>" placeholder="Emergency fund" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                </div>
+                <div>
+                    <label for="description" class="mb-1.5 block text-sm font-medium text-slate-700">Description <span class="font-normal text-slate-400">optional</span></label>
+                    <textarea id="description" name="description" rows="3" maxlength="2000" placeholder="What are you saving for?" class="w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10"><?= wallet_escape((string) ($editGoal['description'] ?? '')) ?></textarea>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label for="target_amount" class="mb-1.5 block text-sm font-medium text-slate-700">Target amount</label>
+                        <input id="target_amount" name="target_amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editGoal['target_amount'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                    </div>
+                    <div>
+                        <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency</label>
+                        <select id="currency_code" name="currency_code" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            <?php foreach ($currencies as $currency): ?>
+                                <option value="<?= wallet_escape((string) $currency) ?>" <?= ($editGoal['currency_code'] ?? $currencies[0]) === $currency ? 'selected' : '' ?>><?= wallet_escape((string) $currency) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label for="target_date" class="mb-1.5 block text-sm font-medium text-slate-700">Target date <span class="font-normal text-slate-400">optional</span></label>
+                    <input id="target_date" name="target_date" type="date" value="<?= wallet_escape((string) ($editGoal['target_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                </div>
+                <button type="submit" class="w-full rounded-xl bg-[#123a2c] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#0d3024]"><?= $editGoal !== null ? 'Save changes' : 'Create savings goal' ?></button>
+                <?php if ($editGoal !== null): ?><a href="savings.php" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a><?php endif; ?>
+            </form>
+        </section>
+    </div>
+<?php endif; ?>
+<?php require __DIR__ . '/includes/app_shell_end.php'; ?>

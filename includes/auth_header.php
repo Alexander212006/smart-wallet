@@ -37,7 +37,7 @@ $pageDescription = $pageDescription ?? 'A clearer view of your money starts here
                     Make room for the things that matter.
                 </h1>
                 <p class="mt-6 max-w-sm text-base leading-7 text-slate-300">
-                    Bring your spending, savings, and goals together in one calmer view of your finances.
+                    Bring your income, expenses, and savings together in one calmer view of your finances.
                 </p>
                 <div class="mt-10 flex items-center gap-3 text-sm text-slate-300">
                     <span class="flex -space-x-2" aria-hidden="true">

@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "esbuild assets/js/sileo-toast.jsx --bundle --minify --outfile=assets/js/sileo-toast.js"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sileo": "^0.1.6"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

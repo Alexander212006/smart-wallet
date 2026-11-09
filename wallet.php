@@ -1,0 +1,248 @@
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/includes/app.php';
+
+$pdo = getDatabaseConnection();
+$accountTypes = ['cash', 'checking', 'savings', 'credit', 'investment', 'other'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    wallet_require_valid_post();
+
+    $action = wallet_post_string('action');
+    $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
+
+    if ($action === 'create') {
+        $name = wallet_post_string('name');
+        $type = wallet_post_string('account_type');
+        $openingBalance = wallet_post_string('opening_balance');
+        $currency = strtoupper(wallet_post_string('currency_code'));
+
+        if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
+            wallet_set_flash('error', 'Enter a valid account name and type.');
+        } elseif (!wallet_valid_signed_amount($openingBalance)) {
+            wallet_set_flash('error', 'Enter a valid opening balance with up to two decimal places.');
+        } elseif (!wallet_valid_currency($currency)) {
+            wallet_set_flash('error', 'Enter a valid three-letter currency code, such as USD.');
+        } else {
+            $statement = $pdo->prepare(
+                'INSERT INTO accounts (user_id, name, account_type, opening_balance, currency_code)
+                 VALUES (:user_id, :name, :account_type, :opening_balance, :currency_code)'
+            );
+            $statement->execute([
+                'user_id' => $walletUserId,
+                'name' => $name,
+                'account_type' => $type,
+                'opening_balance' => $openingBalance,
+                'currency_code' => $currency,
+            ]);
+            wallet_set_flash('success', 'Account created.');
+        }
+    } elseif ($action === 'update' && $accountId !== false) {
+        $name = wallet_post_string('name');
+        $type = wallet_post_string('account_type');
+
+        if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
+            wallet_set_flash('error', 'Enter a valid account name and type.');
+        } else {
+            $statement = $pdo->prepare(
+                'UPDATE accounts
+                 SET name = :name, account_type = :account_type
+                 WHERE id = :id AND user_id = :user_id'
+            );
+            $statement->execute([
+                'name' => $name,
+                'account_type' => $type,
+                'id' => $accountId,
+                'user_id' => $walletUserId,
+            ]);
+            wallet_set_flash('success', 'Account updated.');
+        }
+    } elseif (in_array($action, ['archive', 'restore'], true) && $accountId !== false) {
+        $archived = $action === 'archive' ? 1 : 0;
+        $statement = $pdo->prepare(
+            'UPDATE accounts SET is_archived = :is_archived WHERE id = :id AND user_id = :user_id'
+        );
+        $statement->execute([
+            'is_archived' => $archived,
+            'id' => $accountId,
+            'user_id' => $walletUserId,
+        ]);
+        $message = $action === 'archive' ? 'Account archived.' : 'Account restored.';
+        wallet_set_flash('success', $message);
+    } else {
+        wallet_set_flash('error', 'That account action could not be completed.');
+    }
+
+    header('Location: wallet.php' . ($action === 'restore' ? '?view=archived' : ''));
+    exit;
+}
+
+$editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
+$editAccount = null;
+if ($editId !== false && $editId !== null) {
+    $editStatement = $pdo->prepare(
+        'SELECT id, name, account_type FROM accounts WHERE id = :id AND user_id = :user_id'
+    );
+    $editStatement->execute(['id' => $editId, 'user_id' => $walletUserId]);
+    $editAccount = $editStatement->fetch() ?: null;
+}
+
+$accountStatement = $pdo->prepare(
+    'SELECT a.id, a.name, a.account_type, a.opening_balance, a.currency_code, a.is_archived,
+            a.opening_balance + COALESCE((
+                SELECT SUM(
+                    CASE
+                        WHEN t.transaction_type = \'income\' AND t.account_id = a.id THEN t.amount
+                        WHEN t.transaction_type = \'expense\' AND t.account_id = a.id THEN -t.amount
+                        WHEN t.transaction_type = \'transfer\' AND t.account_id = a.id THEN -t.amount
+                        WHEN t.transaction_type = \'transfer\' AND t.to_account_id = a.id THEN t.amount
+                        ELSE 0
+                    END
+                )
+                FROM transactions t
+                WHERE t.user_id = a.user_id AND (t.account_id = a.id OR t.to_account_id = a.id)
+            ), 0) AS current_balance,
+            EXISTS(
+                SELECT 1 FROM transactions t
+                WHERE t.user_id = a.user_id AND (t.account_id = a.id OR t.to_account_id = a.id)
+            ) AS has_transactions
+     FROM accounts a
+     WHERE a.user_id = :user_id
+     ORDER BY a.is_archived, a.name'
+);
+$accountStatement->execute(['user_id' => $walletUserId]);
+$accounts = $accountStatement->fetchAll();
+$viewArchived = ($_GET['view'] ?? '') === 'archived';
+$activeAccounts = array_values(array_filter(
+    $accounts,
+    static fn (array $account): bool => !(bool) $account['is_archived']
+));
+$archivedAccounts = array_values(array_filter(
+    $accounts,
+    static fn (array $account): bool => (bool) $account['is_archived']
+));
+$visibleAccounts = $viewArchived ? $archivedAccounts : $activeAccounts;
+
+$appTitle = 'Create wallet';
+$activePage = 'accounts';
+require __DIR__ . '/includes/app_shell_start.php';
+?>
+<section class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <div>
+        <p class="text-sm font-medium text-emerald-800">Build your wallet</p>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Create wallet</h1>
+        <p class="mt-2 text-sm text-slate-500">Manage the places where you keep and move your money.</p>
+    </div>
+    <div class="flex w-fit items-center gap-2">
+        <a
+            href="wallet.php<?= $viewArchived ? '' : '?view=archived' ?>"
+            class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+        >
+            <?= $viewArchived ? 'View active wallets' : 'View archived wallets' ?>
+            <span class="ml-1.5 text-slate-500">(<?= $viewArchived ? count($activeAccounts) : count($archivedAccounts) ?>)</span>
+        </a>
+        <span class="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+            <?= count(array_filter($accounts, static fn (array $account): bool => !(bool) $account['is_archived'])) ?> active
+        </span>
+    </div>
+</section>
+
+<div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+    <section class="rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/30">
+        <div class="flex flex-col justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+            <div>
+                <h2 class="font-semibold tracking-tight"><?= $viewArchived ? 'Archived wallets' : 'Active wallets' ?></h2>
+                <p class="mt-1 text-sm text-slate-500">Balances include recorded income, expenses, and transfers.</p>
+            </div>
+        </div>
+        <?php if ($visibleAccounts === []): ?>
+            <?php if ($accounts === []): ?>
+            <p class="px-5 py-10 text-center text-sm text-slate-500">You haven’t created any wallets yet.</p>
+            <?php else: ?>
+                <p class="px-5 py-10 text-center text-sm text-slate-500"><?= $viewArchived ? 'There are no archived wallets.' : 'There are no active wallets.' ?></p>
+            <?php endif; ?>
+        <?php else: ?>
+            <div class="divide-y divide-slate-100">
+                <?php foreach ($visibleAccounts as $account): ?>
+                    <article class="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                        <div class="flex min-w-0 items-center gap-3">
+                            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl <?= $account['is_archived'] ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-800' ?>">
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M3 9h18m-14 6h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                            </span>
+                            <div class="min-w-0">
+                                <p class="truncate text-sm font-semibold"><?= wallet_escape((string) $account['name']) ?></p>
+                                <p class="mt-1 text-xs capitalize text-slate-500">
+                                    <?= wallet_escape((string) $account['account_type']) ?> · <?= wallet_escape((string) $account['currency_code']) ?>
+                                    <?= $account['is_archived'] ? ' · Archived' : '' ?>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 sm:justify-end">
+                            <p class="text-sm font-semibold"><?= wallet_escape($account['currency_code'] . ' ' . number_format((float) $account['current_balance'], 2)) ?></p>
+                            <div class="flex items-center gap-2">
+                                <?php if (!$account['is_archived']): ?>
+                                    <a href="wallet.php?edit=<?= (int) $account['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
+                                <?php endif; ?>
+                                <form method="post" action="wallet.php" <?= !$account['is_archived'] ? 'data-confirm-archive="true"' : '' ?>>
+                                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                    <input type="hidden" name="account_id" value="<?= (int) $account['id'] ?>">
+                                    <input type="hidden" name="action" value="<?= $account['is_archived'] ? 'restore' : 'archive' ?>">
+                                    <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium <?= $account['is_archived'] ? 'text-emerald-700 hover:bg-emerald-50' : 'text-slate-500 hover:bg-slate-100' ?>">
+                                        <?= $account['is_archived'] ? 'Restore' : 'Archive' ?>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+        <h2 class="font-semibold tracking-tight"><?= $editAccount !== null ? 'Edit wallet' : 'Create wallet' ?></h2>
+        <p class="mt-1 text-sm text-slate-500">
+            <?= $editAccount !== null ? 'Update its name and wallet type.' : 'Wallets in different currencies stay separate.' ?>
+        </p>
+        <form method="post" action="wallet.php" class="mt-5 space-y-4" <?= $editAccount === null ? 'data-confirm-title="Create this wallet?" data-confirm-description="The wallet will be added to your account." data-confirm-label="Create wallet"' : '' ?>>
+            <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+            <input type="hidden" name="action" value="<?= $editAccount !== null ? 'update' : 'create' ?>">
+            <?php if ($editAccount !== null): ?>
+                <input type="hidden" name="account_id" value="<?= (int) $editAccount['id'] ?>">
+            <?php endif; ?>
+            <div>
+                <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700">Wallet name</label>
+                <input id="name" name="name" type="text" maxlength="120" required value="<?= wallet_escape((string) ($editAccount['name'] ?? '')) ?>" placeholder="Everyday checking" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+            </div>
+            <div>
+                <label for="account_type" class="mb-1.5 block text-sm font-medium text-slate-700">Wallet type</label>
+                <select id="account_type" name="account_type" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm capitalize outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                    <?php foreach ($accountTypes as $type): ?>
+                        <option value="<?= wallet_escape($type) ?>" <?= ($editAccount['account_type'] ?? 'checking') === $type ? 'selected' : '' ?>><?= wallet_escape(ucfirst($type)) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php if ($editAccount === null): ?>
+                <div>
+                    <label for="opening_balance" class="mb-1.5 block text-sm font-medium text-slate-700">Opening balance</label>
+                    <input id="opening_balance" name="opening_balance" type="number" step="0.01" value="0.00" required class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                    <p class="mt-1.5 text-xs text-slate-400">Use a negative amount for an account that starts in debt.</p>
+                </div>
+                <div>
+                    <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency code</label>
+                    <input id="currency_code" name="currency_code" type="text" minlength="3" maxlength="3" pattern="[A-Za-z]{3}" value="USD" required class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm uppercase outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                    <p class="mt-1.5 text-xs text-slate-400">Three-letter code, for example USD or PHP.</p>
+                </div>
+            <?php endif; ?>
+            <button type="submit" class="w-full rounded-xl bg-[#123a2c] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#0d3024]">
+                <?= $editAccount !== null ? 'Save changes' : 'Create wallet' ?>
+            </button>
+            <?php if ($editAccount !== null): ?>
+                <a href="wallet.php" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a>
+            <?php endif; ?>
+        </form>
+    </section>
+</div>
+<?php require __DIR__ . '/includes/app_shell_end.php'; ?>
