@@ -27,7 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             || !wallet_valid_amount($targetAmount)
             || !wallet_valid_currency($currency)
             || !in_array($currency, $currencies, true)
-            || ($targetDate !== '' && !wallet_valid_date($targetDate))
+            || ($action === 'create' && !wallet_valid_date($targetDate))
+            || ($action === 'update' && $targetDate !== '' && !wallet_valid_date($targetDate))
             || ($action === 'update' && $goalId === false);
 
         if ($invalid) {
@@ -249,6 +250,11 @@ foreach ($goals as &$goal) {
 }
 unset($goal);
 
+$viewAchieved = ($_GET['view'] ?? '') === 'achieved';
+$activeGoals = array_filter($goals, static fn (array $g): bool => $g['status'] !== 'completed');
+$achievedGoals = array_filter($goals, static fn (array $g): bool => $g['status'] === 'completed');
+$displayGoals = $viewAchieved ? $achievedGoals : $activeGoals;
+
 $accountStatement = $pdo->prepare(
     'SELECT id, name, currency_code
      FROM wallets
@@ -282,7 +288,14 @@ require __DIR__ . '/includes/app_shell_start.php';
         <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Savings</h1>
         <p class="mt-2 text-sm text-slate-500">Give your plans a target, then celebrate every contribution.</p>
     </div>
-    <span class="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"><?= count(array_filter($goals, static fn (array $goal): bool => $goal['status'] === 'active')) ?> active</span>
+    <div class="flex items-center gap-2">
+        <a href="savings.php" class="rounded-lg px-3 py-1.5 text-sm font-medium transition <?= !$viewAchieved ? 'bg-[#123a2c] text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' ?>">
+            Active <span class="ml-1 <?= !$viewAchieved ? 'text-emerald-300' : 'text-slate-400' ?>"><?= count($activeGoals) ?></span>
+        </a>
+        <a href="savings.php?view=achieved" class="rounded-lg px-3 py-1.5 text-sm font-medium transition <?= $viewAchieved ? 'bg-[#123a2c] text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' ?>">
+            Achieved <span class="ml-1 <?= $viewAchieved ? 'text-emerald-300' : 'text-slate-400' ?>"><?= count($achievedGoals) ?></span>
+        </a>
+    </div>
 </section>
 
 <?php if ($currencies === []): ?>
@@ -294,13 +307,22 @@ require __DIR__ . '/includes/app_shell_start.php';
 <?php else: ?>
     <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
         <section class="space-y-4">
-            <?php if ($goals === []): ?>
+            <?php if ($displayGoals === []): ?>
                 <div class="rounded-2xl border border-slate-200/80 bg-white px-5 py-10 text-center shadow-sm">
-                    <h2 class="font-semibold">Start with a goal</h2>
-                    <p class="mt-2 text-sm text-slate-500">Plan a trip, build an emergency fund, or save for something you love.</p>
+                    <?php if ($viewAchieved): ?>
+                        <span class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>
+                        </span>
+                        <h2 class="font-semibold">No achieved goals yet</h2>
+                        <p class="mt-2 text-sm text-slate-500">When you complete a savings goal, it will appear here.</p>
+                        <a href="savings.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">View active goals</a>
+                    <?php else: ?>
+                        <h2 class="font-semibold">Start with a goal</h2>
+                        <p class="mt-2 text-sm text-slate-500">Plan a trip, build an emergency fund, or save for something you love.</p>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
-            <?php foreach ($goals as $goal): ?>
+            <?php foreach ($displayGoals as $goal): ?>
                 <?php
                 $target = (float) $goal['target_amount'];
                 $saved = (float) $goal['saved'];
@@ -452,8 +474,8 @@ require __DIR__ . '/includes/app_shell_start.php';
                     </div>
                 </div>
                 <div>
-                    <label for="target_date" class="mb-1.5 block text-sm font-medium text-slate-700">Target date <span class="font-normal text-slate-400">optional</span></label>
-                    <input id="target_date" name="target_date" type="date" value="<?= wallet_escape((string) ($editGoal['target_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                    <label for="target_date" class="mb-1.5 block text-sm font-medium text-slate-700">Target date</label>
+                    <input id="target_date" name="target_date" type="date" required value="<?= wallet_escape((string) ($editGoal['target_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
                 </div>
                 <button type="submit" class="w-full rounded-xl bg-[#123a2c] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#0d3024]"><?= $editGoal !== null ? 'Save changes' : 'Create savings goal' ?></button>
                 <?php if ($editGoal !== null): ?><a href="savings.php" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a><?php endif; ?>

@@ -9,6 +9,7 @@ $periods = ['weekly', 'monthly', 'yearly'];
 $defaultCategories = ['Food & dining', 'Transportation', 'Housing', 'Utilities', 'Healthcare', 'Shopping', 'Entertainment', 'Education', 'Travel'];
 $currencies = wallet_currency_options($pdo, $walletUserId);
 $today = new DateTimeImmutable('today');
+$expenseNatureOptions = ['' => 'Unclassified', 'essential' => 'Essential', 'non_essential' => 'Non-essential'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
@@ -30,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $amount = wallet_post_string('expense_amount');
         $description = wallet_post_string('expense_description');
         $expenseDate = wallet_post_string('expense_date');
+        $expenseNature = wallet_post_string('expense_nature');
 
         $validAccount = false;
         if ($accountId !== false) {
@@ -64,6 +66,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             || !wallet_valid_amount($amount)
             || strlen($description) > 255
             || !wallet_valid_date($expenseDate)
+            || !is_string($_POST['expense_nature'] ?? '')
+            || !array_key_exists($expenseNature, $expenseNatureOptions)
             || ($action === 'update_expense' && ($expenseId === false || !$existingExpense));
 
         if ($invalid) {
@@ -83,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'amount' => $amount,
                 'description' => $description === '' ? null : $description,
                 'transaction_date' => $expenseDate . ' 12:00:00',
+                'expense_nature' => $expenseNature === '' ? null : $expenseNature,
                 'user_id' => $walletUserId,
             ];
 
@@ -90,9 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
                 $statement = $pdo->prepare(
                     'INSERT INTO transactions
-                        (user_id, wallet_id, category, transaction_type, amount, description, transaction_date)
+                        (user_id, wallet_id, category, transaction_type, amount, description, transaction_date, expense_nature)
                      VALUES
-                        (:user_id, :account_id, :category_id, \'expense\', :amount, :description, :transaction_date)'
+                        (:user_id, :account_id, :category_id, \'expense\', :amount, :description, :transaction_date, :expense_nature)'
                 );
                 $statement->execute($parameters);
                 wallet_apply_transaction_to_current_balance(
@@ -125,6 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             category = :category_id,
                             amount = :amount,
                             description = :description,
+                            expense_nature = :expense_nature,
                             transaction_date = :transaction_date
                          WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
                     );
@@ -326,7 +332,7 @@ $editExpenseId = filter_input(INPUT_GET, 'edit_expense', FILTER_VALIDATE_INT);
 $editExpense = null;
 if ($editExpenseId !== false && $editExpenseId !== null) {
     $editExpenseStatement = $pdo->prepare(
-        'SELECT id, wallet_id AS account_id, category AS category_id, amount, description, DATE(transaction_date) AS expense_date
+        'SELECT id, wallet_id AS account_id, category AS category_id, amount, description, expense_nature, DATE(transaction_date) AS expense_date
          FROM transactions
          WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
     );
@@ -364,7 +370,7 @@ $accountStatement->execute(['user_id' => $walletUserId]);
 $activeAccounts = $accountStatement->fetchAll();
 
 $expenseEntriesStatement = $pdo->prepare(
-    'SELECT t.id, t.amount, t.description, t.transaction_date,
+    'SELECT t.id, t.amount, t.description, t.transaction_date, t.expense_nature,
             a.name AS account_name, a.currency_code, a.is_archived,
             COALESCE(c.name, \'Uncategorized\') AS category_name
      FROM transactions t
@@ -493,6 +499,7 @@ require __DIR__ . '/includes/app_shell_start.php';
                                 <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                                     <div class="min-w-0">
                                         <h3 class="truncate text-sm font-semibold"><?= wallet_escape((string) ($expense['description'] ?: $expense['category_name'])) ?></h3>
+                                        <span class="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"><?= wallet_escape($expenseNatureOptions[$expense['expense_nature'] ?? ''] ?? 'Unclassified') ?></span>
                                         <p class="mt-1 text-xs text-slate-500">
                                             <?= wallet_escape((string) $expense['account_name']) ?><?= $expense['is_archived'] ? ' · Archived wallet' : '' ?>
                                             <span class="px-1 text-slate-300">·</span>
@@ -678,6 +685,15 @@ require __DIR__ . '/includes/app_shell_start.php';
                             <label for="expense_custom_category" class="mb-1.5 block text-sm font-medium text-slate-700">Category name</label>
                             <input id="expense_custom_category" name="custom_category" type="text" maxlength="80" data-custom-category-input placeholder="e.g. Pet care" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
                         </div>
+                    </div>
+                    <div>
+                        <label for="expense_nature" class="mb-1.5 block text-sm font-medium text-slate-700">Expense type <span class="font-normal text-slate-400">optional</span></label>
+                        <select id="expense_nature" name="expense_nature" aria-describedby="expense_nature_help" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            <?php foreach ($expenseNatureOptions as $value => $label): ?>
+                                <option value="<?= wallet_escape($value) ?>" <?= ($editExpense['expense_nature'] ?? '') === $value ? 'selected' : '' ?>><?= wallet_escape($label) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p id="expense_nature_help" class="mt-1.5 text-xs text-slate-500">Choose whether this expense is essential for you, or leave it unclassified.</p>
                     </div>
                     <div>
                         <label for="expense_date" class="mb-1.5 block text-sm font-medium text-slate-700">Date</label>

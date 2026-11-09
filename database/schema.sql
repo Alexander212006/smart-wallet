@@ -74,6 +74,7 @@ CREATE TABLE transactions (
     wallet_id BIGINT UNSIGNED NOT NULL,
     category BIGINT UNSIGNED NULL,
     transaction_type ENUM('income', 'expense') NOT NULL,
+    expense_nature ENUM('essential', 'non_essential') NULL DEFAULT NULL,
     amount DECIMAL(14, 2) NOT NULL,
     description VARCHAR(255) NULL,
     transaction_date DATETIME NOT NULL,

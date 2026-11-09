@@ -6,6 +6,7 @@ $navigationItems = [
     'overview' => ['label' => 'Overview', 'url' => 'index.php', 'icon' => 'overview'],
     'accounts' => ['label' => 'Create wallet', 'url' => 'wallet.php', 'icon' => 'accounts'],
     'expenses' => ['label' => 'Expenses', 'url' => 'expenses.php', 'icon' => 'expenses'],
+    'spending' => ['label' => 'Spending analysis', 'url' => 'spending.php', 'icon' => 'spending'],
     'savings' => ['label' => 'Savings', 'url' => 'savings.php', 'icon' => 'goals'],
     'income' => ['label' => 'Income', 'url' => 'income.php', 'icon' => 'income'],
 ];
@@ -43,6 +44,9 @@ $navigationLinkClasses = $navigationLayout === 'mobile'
                     <path d="M3 9h18m-14 6h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
                 <?php elseif ($item['icon'] === 'budgets' || $item['icon'] === 'expenses'): ?>
                     <path d="M4 19V5m0 14h16M8 15v-3m4 3V7m4 8v-5m4 5V4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                <?php elseif ($item['icon'] === 'spending'): ?>
+                    <path d="M4 19h16M6 15v-4m6 4V5m6 10V8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                    <path d="m4 8 5-4 5 2 6-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
                 <?php elseif ($item['icon'] === 'income'): ?>
                     <path d="M12 5v14m-5-5 5 5 5-5M4 4h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
                 <?php else: ?>

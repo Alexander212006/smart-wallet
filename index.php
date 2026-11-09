@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/app.php';
+require_once __DIR__ . '/includes/spending_analysis.php';
 
 $userId = $walletUserId;
 $name = is_string($_SESSION['user']['name'] ?? null) ? $_SESSION['user']['name'] : 'there';
@@ -284,6 +285,9 @@ $activityValues = array_map(
 $maxActivity = max([1, ...$activityValues]);
 $formatMoney = static fn (float|int|string $amount): string =>
     ($currency ?? '') . ' ' . number_format((float) $amount, 2);
+$spendingAnalysis = $hasAccounts
+    ? wallet_load_spending_analysis($pdo, $userId, $currency, $today->modify('first day of this month'), $today)
+    : null;
 $activePage = 'overview';
 $flash = wallet_take_flash();
 ?>
@@ -610,6 +614,8 @@ $flash = wallet_take_flash();
                         <?php endif; ?>
                     </article>
                 </section>
+
+                <?php require __DIR__ . '/includes/spending_summary.php'; ?>
 
                 <section class="rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/30">
                     <div class="flex items-center justify-between border-b border-slate-100 px-5 py-5 sm:px-6">
