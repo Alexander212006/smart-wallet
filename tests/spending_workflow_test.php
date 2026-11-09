@@ -60,7 +60,11 @@ function workflow_request(CurlHandle $client, string $path, ?array $fields = nul
         throw new RuntimeException('Local HTTP request failed; check that the PHP server is running.');
     }
 
-    return ['status' => (int) curl_getinfo($client, CURLINFO_RESPONSE_CODE), 'body' => $body];
+    return [
+        'status' => (int) curl_getinfo($client, CURLINFO_RESPONSE_CODE),
+        'content_type' => (string) (curl_getinfo($client, CURLINFO_CONTENT_TYPE) ?: ''),
+        'body' => $body,
+    ];
 }
 
 function workflow_xpath(string $html): DOMXPath
@@ -164,6 +168,10 @@ try {
     $previousMonth = $today->modify('first day of this month')->modify('-1 month');
     $anonymous = workflow_client();
     workflow_assert(workflow_request($anonymous, 'spending.php')['status'] === 302, 'Analysis requires authentication.');
+    workflow_assert(
+        workflow_request($anonymous, 'reports.php?period=monthly&month=' . $month . '&currency=PHP&export=pdf')['status'] === 302,
+        'Financial report exports require authentication.'
+    );
     $client = workflow_client();
     workflow_login($client, $emails['main'], $password);
     $form = workflow_request($client, 'expenses.php');
@@ -394,6 +402,42 @@ try {
         && str_contains($summary, 'PHP 40.00'), 'Dashboard summary uses the scoped category and peak-day amount.');
     workflow_assert(str_contains($summary, '13% / 25%') && str_contains($summary, '63% unclassified'),
         'Dashboard shows rounded essential, non-essential and unclassified shares.');
+
+    $reportPage = workflow_request($client, 'reports.php?period=monthly&month=' . $month . '&currency=PHP');
+    workflow_assert($reportPage['status'] === 200, 'Financial Reports page renders with validated filters.');
+    workflow_assert(workflow_text($reportPage['body'], '//h1') === 'Financial Reports', 'Financial Reports heading renders.');
+    $reportSummary = workflow_text($reportPage['body'], '//section[@aria-label="Financial summary"]');
+    workflow_assert(
+        str_contains($reportSummary, 'PHP 444.00') && str_contains($reportSummary, 'PHP 40.00')
+            && !str_contains($reportSummary, 'PHP 900.00'),
+        'Financial report summary scopes active owned wallets and excludes future transactions.'
+    );
+    workflow_assert(
+        !str_contains($reportPage['body'], $foreignCategoryName) && str_contains($reportPage['body'], 'Previous-period comparison'),
+        'Financial report isolates user data and renders its comparison section.'
+    );
+
+    $csvExport = workflow_request(
+        $client,
+        'reports.php?period=monthly&month=' . $month . '&currency=PHP&export=csv'
+    );
+    workflow_assert(
+        $csvExport['status'] === 200 && str_starts_with($csvExport['content_type'], 'text/csv')
+            && str_starts_with($csvExport['body'], "\xEF\xBB\xBF")
+            && str_contains($csvExport['body'], 'Financial summary')
+            && str_contains($csvExport['body'], '444.00'),
+        'Authenticated CSV export returns matching UTF-8 report data.'
+    );
+    $pdfExport = workflow_request(
+        $client,
+        'reports.php?period=monthly&month=' . $month . '&currency=PHP&export=pdf'
+    );
+    workflow_assert(
+        $pdfExport['status'] === 200 && str_starts_with($pdfExport['content_type'], 'application/pdf')
+            && str_starts_with($pdfExport['body'], '%PDF-1.4')
+            && str_ends_with($pdfExport['body'], "%%EOF\n"),
+        'Authenticated PDF export returns a complete PDF document.'
+    );
 
     $usd = workflow_request($client, 'spending.php?currency=USD&month=' . $month);
     workflow_assert($usd['status'] === 200, 'Currency filter renders.');
