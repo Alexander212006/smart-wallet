@@ -265,12 +265,6 @@ require __DIR__ . '/includes/app_shell_start.php';
                 </div>
             <?php endif; ?>
             <?php foreach ($budgets as $budget): ?>
-                <?php
-                $limit = (float) $budget['amount'];
-                $spent = (float) $budget['spent'];
-                $progress = $limit > 0 ? min(100, (int) round($spent / $limit * 100)) : 0;
-                $isOver = $budget['over_cents'] > 0;
-                ?>
                 <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
                     <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                         <div>
@@ -309,13 +303,13 @@ require __DIR__ . '/includes/app_shell_start.php';
                         </div>
                     </div>
                     <div class="mt-5 flex items-center justify-between gap-3 text-sm">
-                        <span class="<?= $isOver ? 'font-semibold text-rose-600' : 'font-medium text-slate-700' ?>"><?= wallet_escape((string) $budget['currency_code']) ?> <?= number_format($spent, 2) ?> spent</span>
-                        <span class="text-slate-500">of <?= wallet_escape((string) $budget['currency_code']) ?> <?= number_format($limit, 2) ?></span>
+                        <span class="<?= $budget['is_over'] ? 'font-semibold text-rose-600' : 'font-medium text-slate-700' ?>"><?= wallet_escape(wallet_expense_limit_money($budget, $budget['spent_cents'])) ?> spent</span>
+                        <span class="text-slate-500">of <?= wallet_escape(wallet_expense_limit_money($budget, $budget['limit_cents'])) ?></span>
                     </div>
                     <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
-                        <div class="h-full rounded-full <?= $isOver ? 'bg-rose-500' : 'bg-emerald-500' ?>" style="width: <?= $progress ?>%"></div>
+                        <div class="h-full rounded-full <?= $budget['is_over'] ? 'bg-rose-500' : 'bg-emerald-500' ?>" style="width: <?= $budget['progress_percent'] ?>%"></div>
                     </div>
-                    <p class="mt-2 text-xs <?= $isOver ? 'text-rose-600' : 'text-slate-400' ?>"><?= $isOver ? 'You’re over this expense limit.' : number_format($progress) . '% of your limit used' ?></p>
+                    <p class="mt-2 text-xs <?= $budget['is_over'] ? 'font-medium text-rose-600' : 'text-slate-400' ?>"><?= wallet_escape(wallet_expense_limit_status($budget)) ?><?= $budget['is_over'] ? '' : ' · ' . $budget['progress_percent'] . '% used' ?></p>
                 </article>
             <?php endforeach; ?>
     </section>

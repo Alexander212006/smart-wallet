@@ -355,7 +355,9 @@ try {
     workflow_assert($limit !== false && $limit['category'] === $categoryName, 'Limits store category names directly.');
     $limitDashboard = workflow_request($client, 'index.php?currency=PHP');
     $limitCard = workflow_text($limitDashboard['body'], '//article[@id="expenses"]');
-    workflow_assert(str_contains($limitCard, $categoryName) && str_contains($limitCard, 'PHP 25.00 / PHP 100.00'),
+    workflow_assert(str_contains($limitCard, $categoryName)
+        && str_contains($limitCard, 'PHP 25.00 spent / PHP 100.00 limit')
+        && str_contains($limitCard, 'PHP 75.00 remaining'),
         'Category-scoped limit sums negative expenses as positive spending.');
     workflow_assert(workflow_overspending_count($limitDashboard['body']) === 0, 'Spending below a limit does not alert.');
 
@@ -452,6 +454,35 @@ try {
     $multiPage = workflow_request($client, 'index.php?currency=PHP');
     workflow_assert($multiPage['status'] === 200 && workflow_overspending_count($multiPage['body']) === 3,
         'Weekly, yearly and other-currency limits alert; inactive, foreign and prior-period limits do not.');
+    $overviewLimitNodes = workflow_xpath($multiPage['body'])->query('//article[@id="expenses"]//*[@data-overview-expense-limit]');
+    workflow_assert($overviewLimitNodes !== false && $overviewLimitNodes->length === 4,
+        'Overview displays all active limits for its selected currency without a monthly-only filter or card cap.');
+    $overviewLimitText = workflow_text($multiPage['body'], '//article[@id="expenses"]');
+    workflow_assert(str_contains($overviewLimitText, 'Weekly warning')
+        && str_contains($overviewLimitText, 'Yearly warning')
+        && str_contains($overviewLimitText, 'Prior-period spending')
+        && !str_contains($overviewLimitText, 'Expired limit')
+        && !str_contains($overviewLimitText, 'Stopped limit')
+        && !str_contains($overviewLimitText, 'Future limit')
+        && !str_contains($overviewLimitText, 'USD warning'),
+        'Overview includes active weekly/yearly/recurring limits and excludes inactive or other-currency limits.');
+    $overviewWeekly = workflow_text(
+        $multiPage['body'],
+        '//article[@id="expenses"]//*[@data-overview-expense-limit][.//p[normalize-space(.)="Weekly warning"]]'
+    );
+    $expensesWithLimits = workflow_request($client, 'expenses.php');
+    $expensesWeekly = workflow_text(
+        $expensesWithLimits['body'],
+        '//section[@id="expense-limits"]/article[.//h2[normalize-space(.)="Weekly warning"]]'
+    );
+    foreach ([$overviewWeekly, $expensesWeekly] as $weeklyText) {
+        workflow_assert(str_contains($weeklyText, $categoryName)
+            && str_contains($weeklyText, 'Weekly')
+            && str_contains($weeklyText, 'PHP 25.00 spent')
+            && str_contains($weeklyText, 'PHP 5.00')
+            && str_contains($weeklyText, 'PHP 20.00 over limit'),
+            'Overview and Expenses use the same category, period, spent, limit and overspending values.');
+    }
     $multiText = workflow_text($multiPage['body'], '//section[@aria-labelledby="overspending-alert-title"]');
     workflow_assert(str_contains($multiText, 'Weekly warning') && str_contains($multiText, 'Yearly warning')
         && str_contains($multiText, 'PHP 20.00 over limit') && str_contains($multiText, 'USD 495.00 over limit'),
@@ -460,6 +491,10 @@ try {
     $switchedCurrency = workflow_request($client, 'index.php?currency=USD');
     workflow_assert(workflow_overspending_count($switchedCurrency['body']) === 3 && workflow_overspending_toasts($switchedCurrency['body']) === 0,
         'Switching dashboard currency does not reset or duplicate alerts.');
+    $usdOverviewLimits = workflow_xpath($switchedCurrency['body'])->query('//article[@id="expenses"]//*[@data-overview-expense-limit]');
+    workflow_assert($usdOverviewLimits !== false && $usdOverviewLimits->length === 1
+        && str_contains((string) $usdOverviewLimits->item(0)->textContent, 'USD warning'),
+        'Overview limits remain scoped to the selected wallet currency.');
     $pdo->prepare('DELETE FROM expense_limits WHERE id IN (' . implode(',', array_fill(0, count($extraLimitIds), '?')) . ')')->execute($extraLimitIds);
     $pdo->prepare('DELETE FROM transactions WHERE id IN (' . implode(',', array_fill(0, count($ignoredIds), '?')) . ')')->execute($ignoredIds);
 
