@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/app.php';
 require_once __DIR__ . '/includes/spending_analysis.php';
+require_once __DIR__ . '/includes/expense_limits.php';
 
 $userId = $walletUserId;
 $name = is_string($_SESSION['user']['name'] ?? null) ? $_SESSION['user']['name'] : 'there';
 $firstName = explode(' ', trim($name))[0];
 $today = new DateTimeImmutable('today');
 $monthStart = $today->modify('first day of this month')->format('Y-m-d');
-$nextMonth = $today->modify('first day of next month')->format('Y-m-d');
 $cashFlowRanges = [7 => 'Last 7 days', 30 => 'Last 30 days', 365 => 'Last 365 days'];
 $requestedCashFlowDays = $_GET['cash_flow_days'] ?? null;
 $cashFlowDays = is_string($requestedCashFlowDays)
@@ -22,6 +22,9 @@ $cashFlowStartDate = $today->modify('-' . ($cashFlowDays - 1) . ' days');
 $cashFlowStart = $cashFlowStartDate->format('Y-m-d');
 $monthLabel = $today->format('F Y');
 $pdo = getDatabaseConnection();
+$expenseLimits = wallet_load_expense_limits($pdo, $userId, $today);
+$overspendingAlerts = wallet_overspending_alerts($expenseLimits);
+$overspendingNotifications = wallet_take_overspending_notifications($overspendingAlerts, $userId);
 
 $currencyStatement = $pdo->prepare(
     'SELECT DISTINCT currency_code
@@ -59,58 +62,15 @@ if ($hasAccounts) {
     );
     $accountStatement->execute(['user_id' => $userId, 'currency' => $currency]);
     $accounts = $accountStatement->fetchAll();
-    $balance = array_sum(array_map(
-        static fn (array $account): float => (float) $account['current_balance'],
-        $accounts
-    ));
-
-    $monthlyStatement = $pdo->prepare(
-        'SELECT
-            COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) AS income,
-            COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS expenses
-         FROM transactions t
-         INNER JOIN wallets a ON a.id = t.wallet_id
-         WHERE t.user_id = :user_id
-            AND a.user_id = :account_user_id
-            AND a.currency_code = :currency
-            AND a.is_archived = 0
-            AND t.transaction_date >= :month_start
-            AND t.transaction_date < :next_month'
-    );
-    $monthlyStatement->execute([
-        'user_id' => $userId,
-        'account_user_id' => $userId,
-        'currency' => $currency,
-        'month_start' => $monthStart,
-        'next_month' => $nextMonth,
-    ]);
-    $monthlyTotals = $monthlyStatement->fetch();
+    $monthlyTotals = wallet_call_procedure($pdo, 'sp_get_monthly_summary', [$userId, $currency, $monthStart])[0];
+    $balance = (float) $monthlyTotals['balance'];
     $monthlyIncome = (float) $monthlyTotals['income'];
     $monthlyExpenses = (float) $monthlyTotals['expenses'];
-
-    $activityStatement = $pdo->prepare(
-        'SELECT DATE(t.transaction_date) AS activity_date,
-                SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income,
-                SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expenses
-         FROM transactions t
-         INNER JOIN wallets a ON a.id = t.wallet_id
-         WHERE t.user_id = :user_id
-            AND a.user_id = :account_user_id
-            AND a.currency_code = :currency
-            AND a.is_archived = 0
-            AND t.transaction_date >= :activity_start
-            AND t.transaction_date < :tomorrow
-         GROUP BY DATE(t.transaction_date)'
-    );
-    $activityStatement->execute([
-        'user_id' => $userId,
-        'account_user_id' => $userId,
-        'currency' => $currency,
-        'activity_start' => $cashFlowStart,
-        'tomorrow' => $today->modify('+1 day')->format('Y-m-d'),
+    $activityRows = wallet_call_procedure($pdo, 'sp_get_cash_flow', [
+        $userId, $currency, $cashFlowStart, $today->modify('+1 day')->format('Y-m-d'),
     ]);
     $activityByDate = [];
-    foreach ($activityStatement->fetchAll() as $row) {
+    foreach ($activityRows as $row) {
         $activityByDate[$row['activity_date']] = $row;
     }
 
@@ -154,113 +114,26 @@ if ($hasAccounts) {
         }
     }
 
-    $categoryStatement = $pdo->prepare(
-        'SELECT COALESCE(t.category, \'Uncategorized\') AS name, SUM(-t.amount) AS total
-         FROM transactions t
-         INNER JOIN wallets a ON a.id = t.wallet_id
-         WHERE t.user_id = :user_id
-            AND a.user_id = :account_user_id
-            AND a.currency_code = :currency
-            AND a.is_archived = 0
-            AND t.amount < 0
-            AND t.transaction_date >= :month_start
-            AND t.transaction_date < :next_month
-         GROUP BY t.category
-         ORDER BY total DESC
-         LIMIT 4'
-    );
-    $categoryStatement->execute([
-        'user_id' => $userId,
-        'account_user_id' => $userId,
-        'currency' => $currency,
-        'month_start' => $monthStart,
-        'next_month' => $nextMonth,
-    ]);
-    $expensesByCategory = $categoryStatement->fetchAll();
+    $expensesByCategory = array_slice(wallet_call_procedure($pdo, 'sp_get_category_spending', [$userId, $currency, $monthStart]), 0, 4);
 
-    $budgetStatement = $pdo->prepare(
-        'SELECT b.id, b.name, b.amount, b.start_date, b.end_date, b.is_recurring, b.category,
-                COALESCE(b.category, \'All categories\') AS category_name
-         FROM expense_limits b
-         WHERE b.user_id = :user_id
-            AND b.currency_code = :currency
-            AND b.period = \'monthly\'
-         ORDER BY b.name'
-    );
-    $budgetStatement->execute([
-        'user_id' => $userId,
-        'currency' => $currency,
-    ]);
-    $budgetSpentStatement = $pdo->prepare(
-        'SELECT COALESCE(SUM(-t.amount), 0)
-         FROM transactions t
-         INNER JOIN wallets a ON a.id = t.wallet_id
-         WHERE t.user_id = :user_id
-            AND a.user_id = :account_user_id
-            AND a.currency_code = :currency
-            AND a.is_archived = 0
-            AND t.amount < 0
-            AND t.transaction_date >= :range_start
-            AND t.transaction_date < :range_end
-            AND (:include_all_categories = 1 OR t.category = :category)'
-    );
-    $budgets = [];
-    foreach ($budgetStatement->fetchAll() as $budget) {
-        $range = wallet_expense_limit_date_range(
-            'monthly',
-            new DateTimeImmutable((string) $budget['start_date']),
-            $today,
-            (bool) $budget['is_recurring'],
-            $budget['end_date'] !== null ? new DateTimeImmutable((string) $budget['end_date']) : null
-        );
-        if ($range === null) {
-            continue;
-        }
-
-        $budgetSpentStatement->execute([
-            'user_id' => $userId,
-            'account_user_id' => $userId,
-            'currency' => $currency,
-            'range_start' => $range['start']->format('Y-m-d'),
-            'range_end' => $range['end']->format('Y-m-d'),
-            'include_all_categories' => $budget['category'] === null ? 1 : 0,
-            'category' => $budget['category'],
-        ]);
-        $budget['spent'] = (float) $budgetSpentStatement->fetchColumn();
-        $budgets[] = $budget;
-        if (count($budgets) === 4) {
-            break;
-        }
-    }
+    $budgets = array_values(array_filter($expenseLimits, static fn (array $limit): bool =>
+        $limit['range_active'] && $limit['period'] === 'monthly' && $limit['currency_code'] === $currency
+    ));
+    usort($budgets, static fn (array $left, array $right): int => strcasecmp($left['name'], $right['name']));
+    $budgets = array_slice($budgets, 0, 4);
 
     $goalStatement = $pdo->prepare(
-        'SELECT g.id, g.name, g.target_amount, g.target_date, g.currency_code,
-                COALESCE(SUM(sc.amount), 0) AS saved
-         FROM savings_goals g
-         LEFT JOIN savings_contributions sc ON sc.savings_goal_id = g.id
-         WHERE g.user_id = :user_id
-            AND g.currency_code = :currency
-            AND g.status = \'active\'
-         GROUP BY g.id, g.name, g.target_amount, g.target_date, g.currency_code
-         ORDER BY g.target_date IS NULL, g.target_date
-         LIMIT 3'
+        'SELECT id,name,target_amount,target_date,currency_code,saved FROM vw_savings_goal_progress
+         WHERE user_id=:user_id AND currency_code=:currency AND status=\'active\'
+         ORDER BY target_date IS NULL,target_date LIMIT 3'
     );
     $goalStatement->execute(['user_id' => $userId, 'currency' => $currency]);
     $goals = $goalStatement->fetchAll();
 
     $recentStatement = $pdo->prepare(
-        'SELECT t.id, t.amount, t.description, t.transaction_date,
-                source.name AS account_name,
-                COALESCE(t.category, \'Uncategorized\') AS category_name
-         FROM transactions t
-         INNER JOIN wallets source
-            ON source.id = t.wallet_id
-            AND source.user_id = t.user_id
-         WHERE t.user_id = :user_id
-            AND source.currency_code = :currency
-            AND source.is_archived = 0
-         ORDER BY t.transaction_date DESC, t.id DESC
-         LIMIT 6'
+        'SELECT id,amount,description,transaction_date,account_name,category_name FROM vw_transaction_details
+         WHERE user_id=:user_id AND currency_code=:currency AND is_archived=0
+         ORDER BY transaction_date DESC,id DESC LIMIT 6'
     );
     $recentStatement->execute(['user_id' => $userId, 'currency' => $currency]);
     $recentTransactions = $recentStatement->fetchAll();
@@ -287,6 +160,7 @@ $flash = wallet_take_flash();
     <meta name="theme-color" content="#f6f8f6">
     <title>Overview | Smart Wallet</title>
     <link rel="stylesheet" href="assets/css/app-alert.css?v=<?= filemtime(__DIR__ . '/assets/css/app-alert.css') ?>">
+    <link rel="stylesheet" href="assets/css/app-dialog.css?v=<?= filemtime(__DIR__ . '/assets/css/app-dialog.css') ?>">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body data-app-shell="true" class="min-h-screen bg-[#f6f8f6] font-sans text-slate-900 antialiased">
@@ -372,6 +246,8 @@ $flash = wallet_take_flash();
                     </span>
                 <?php endif; ?>
             </section>
+
+            <?php require __DIR__ . '/includes/overspending_alerts.php'; ?>
 
             <?php if (!$hasAccounts): ?>
                 <section class="rounded-3xl bg-[#102820] px-7 py-9 text-white sm:px-10 sm:py-12">
@@ -544,7 +420,7 @@ $flash = wallet_take_flash();
                                     $budgetAmount = (float) $budget['amount'];
                                     $spent = (float) $budget['spent'];
                                     $progress = $budgetAmount > 0 ? min(100, (int) round($spent / $budgetAmount * 100)) : 0;
-                                    $overBudget = $spent > $budgetAmount;
+                                    $overBudget = $budget['over_cents'] > 0;
                                     ?>
                                     <div>
                                         <div class="mb-2 flex items-center justify-between gap-3">

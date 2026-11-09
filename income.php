@@ -10,141 +10,39 @@ $defaultCategories = ['Salary', 'Business income', 'Investment returns', 'Gift',
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
-
     $action = wallet_post_string('action');
-    $transactionId = filter_var($_POST['transaction_id'] ?? null, FILTER_VALIDATE_INT);
-
-    if (in_array($action, ['create', 'update'], true)) {
-        $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
-        $categoryValue = wallet_post_string('category');
-        $category = trim(
-            $categoryValue === 'other'
+    try {
+        $transactionId = filter_var($_POST['transaction_id'] ?? null, FILTER_VALIDATE_INT);
+        if (in_array($action, ['create', 'update'], true)) {
+            $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
+            $categoryValue = wallet_post_string('category');
+            $category = trim($categoryValue === 'other'
                 ? wallet_post_string('custom_category')
-                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : '')
-        );
-        $amount = wallet_post_string('amount');
-        $description = wallet_post_string('description');
-        $transactionDate = wallet_post_string('transaction_date');
+                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : ''));
 
-        $accountStatement = $pdo->prepare(
-            'SELECT id FROM wallets WHERE id = :id AND user_id = :user_id AND is_archived = 0'
-        );
-        $accountStatement->execute(['id' => $accountId, 'user_id' => $walletUserId]);
-        $validAccount = $accountStatement->fetchColumn() !== false;
-
-        $invalid = $accountId === false
-            || !$validAccount
-            || !wallet_valid_category($category)
-            || !wallet_valid_amount($amount)
-            || strlen($description) > 255
-            || !wallet_valid_date($transactionDate)
-            || ($action === 'update' && $transactionId === false);
-
-        if ($invalid) {
-            wallet_set_flash('error', 'Check the income details and try again.');
-        } else {
-            $parameters = [
-                'account_id' => $accountId,
-                'category' => $category,
-                'amount' => $amount,
-                'description' => $description === '' ? null : $description,
-                'transaction_date' => $transactionDate . ' 12:00:00',
-                'user_id' => $walletUserId,
-            ];
-
-            if ($action === 'create') {
-                $pdo->beginTransaction();
-                $statement = $pdo->prepare(
-                    'INSERT INTO transactions
-                        (user_id, wallet_id, category, amount, description, transaction_date)
-                     VALUES
-                        (:user_id, :account_id, :category, :amount, :description, :transaction_date)'
-                );
-                $statement->execute($parameters);
-                wallet_apply_transaction_to_current_balance(
-                    $pdo,
-                    $walletUserId,
-                    (int) $accountId,
-                    $amount
-                );
-                $pdo->commit();
-                wallet_set_flash('success', 'Income recorded.');
+            $amount = wallet_post_string('amount');
+            $description = wallet_post_string('description');
+            $transactionDate = wallet_post_string('transaction_date');
+            if ($accountId === false || !wallet_valid_category($category) || !wallet_valid_amount($amount)
+                || strlen($description) > 255 || !wallet_valid_date($transactionDate)
+                || ($action === 'update' && $transactionId === false)) {
+                wallet_set_flash('error', 'Check the income details and try again.');
             } else {
-                $pdo->beginTransaction();
-                $existingStatement = $pdo->prepare(
-                    'SELECT wallet_id, amount FROM transactions
-                     WHERE id = :id AND user_id = :user_id AND amount > 0
-                     FOR UPDATE'
-                );
-                $existingStatement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
-                $existingIncome = $existingStatement->fetch();
-
-                if ($existingIncome === false) {
-                    $pdo->rollBack();
-                    wallet_set_flash('error', 'That income could not be found.');
-                } else {
-                    $parameters['id'] = $transactionId;
-                    $statement = $pdo->prepare(
-                        'UPDATE transactions
-                         SET wallet_id = :account_id,
-                            category = :category,
-                            amount = :amount,
-                            description = :description,
-                            transaction_date = :transaction_date
-                         WHERE id = :id AND user_id = :user_id AND amount > 0'
-                    );
-                    $statement->execute($parameters);
-                    wallet_apply_transaction_to_current_balance(
-                        $pdo,
-                        $walletUserId,
-                        (int) $existingIncome['wallet_id'],
-                        (string) $existingIncome['amount'],
-                        true
-                    );
-                    wallet_apply_transaction_to_current_balance(
-                        $pdo,
-                        $walletUserId,
-                        (int) $accountId,
-                        $amount
-                    );
-                    $pdo->commit();
-                    wallet_set_flash('success', 'Income updated.');
-                }
+                wallet_call_procedure($pdo, 'sp_save_transaction', [
+                    $walletUserId, $action === 'create' ? null : $transactionId, $accountId, $category,
+                    $amount, $description === '' ? null : $description, $transactionDate . ' 12:00:00', null,
+                ]);
+                wallet_set_flash('success', $action === 'create' ? 'Income recorded.' : 'Income updated.');
             }
-        }
-    } elseif ($action === 'delete' && $transactionId !== false) {
-        $pdo->beginTransaction();
-        $existingStatement = $pdo->prepare(
-            'SELECT wallet_id, amount FROM transactions
-             WHERE id = :id AND user_id = :user_id AND amount > 0
-             FOR UPDATE'
-        );
-        $existingStatement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
-        $existingIncome = $existingStatement->fetch();
-
-        if ($existingIncome === false) {
-            $pdo->rollBack();
-            wallet_set_flash('error', 'That income could not be found.');
-        } else {
-            $statement = $pdo->prepare(
-                'DELETE FROM transactions
-                 WHERE id = :id AND user_id = :user_id AND amount > 0'
-            );
-            $statement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
-            wallet_apply_transaction_to_current_balance(
-                $pdo,
-                $walletUserId,
-                (int) $existingIncome['wallet_id'],
-                (string) $existingIncome['amount'],
-                true
-            );
-            $pdo->commit();
+        } elseif ($action === 'delete' && $transactionId !== false) {
+            wallet_call_procedure($pdo, 'sp_delete_transaction', [$walletUserId, $transactionId, 'income']);
             wallet_set_flash('success', 'Income deleted.');
+        } else {
+            wallet_set_flash('error', 'That income action could not be completed.');
         }
-    } else {
-        wallet_set_flash('error', 'That income action could not be completed.');
+    } catch (PDOException $error) {
+        wallet_set_flash('error', wallet_procedure_error($error));
     }
-
     header('Location: income.php');
     exit;
 }
@@ -177,18 +75,13 @@ if ($editIncome !== null && $editIncome['category'] !== null
 }
 $existingCategoryNames = array_map('strtolower', $categories);
 
-$incomeStatement = $pdo->prepare(
-    'SELECT t.id, t.amount, t.description, t.transaction_date, t.category,
-            a.name AS account_name, a.currency_code, a.is_archived,
-            COALESCE(t.category, \'Uncategorized\') AS category_name
-     FROM transactions t
-     INNER JOIN wallets a ON a.id = t.wallet_id AND a.user_id = t.user_id
-     WHERE t.user_id = :user_id AND t.amount > 0
-     ORDER BY t.transaction_date DESC, t.id DESC
-     LIMIT 100'
+$incomeEntries = $pdo->prepare(
+    'SELECT id, amount, description, transaction_date, category, account_name, currency_code, is_archived, category_name
+     FROM vw_transaction_details WHERE user_id = :user_id AND amount > 0
+     ORDER BY transaction_date DESC, id DESC LIMIT 100'
 );
-$incomeStatement->execute(['user_id' => $walletUserId]);
-$incomeEntries = $incomeStatement->fetchAll();
+$incomeEntries->execute(['user_id' => $walletUserId]);
+$incomeEntries = $incomeEntries->fetchAll();
 
 $appTitle = 'Income';
 $activePage = 'income';

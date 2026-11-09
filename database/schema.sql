@@ -1,5 +1,6 @@
 -- Initial schema for the smart wallet application.
 -- Safe to run from the MySQL command line without selecting a database first.
+-- After importing tables, run: php database/install_programs.php --apply
 
 CREATE DATABASE IF NOT EXISTS smart_wallet
     CHARACTER SET utf8mb4

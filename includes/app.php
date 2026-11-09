@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/database_procedures.php';
 
 wallet_start_session();
 
@@ -158,36 +159,6 @@ function wallet_expense_limit_date_range(
 function wallet_valid_signed_amount(string $amount): bool
 {
     return preg_match('/\A-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?\z/', $amount) === 1;
-}
-
-function wallet_apply_transaction_to_current_balance(
-    PDO $pdo,
-    int $userId,
-    int $walletId,
-    string $amount,
-    bool $reverse = false
-): void {
-    if (!wallet_valid_signed_amount($amount) || !wallet_valid_amount(ltrim($amount, '-'))) {
-        throw new InvalidArgumentException('Invalid wallet transaction balance adjustment.');
-    }
-
-    $delta = $reverse
-        ? (str_starts_with($amount, '-') ? substr($amount, 1) : '-' . $amount)
-        : $amount;
-    $statement = $pdo->prepare(
-        'UPDATE wallets
-         SET current_balance = current_balance + :delta
-         WHERE id = :wallet_id AND user_id = :user_id'
-    );
-    $statement->execute([
-        'delta' => $delta,
-        'wallet_id' => $walletId,
-        'user_id' => $userId,
-    ]);
-
-    if ($statement->rowCount() !== 1) {
-        throw new RuntimeException('Wallet current balance could not be updated.');
-    }
 }
 
 function wallet_require_valid_post(): void

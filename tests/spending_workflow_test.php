@@ -93,6 +93,16 @@ function workflow_csrf(string $html): string
     return (string) $nodes->item(0)->nodeValue;
 }
 
+function workflow_overspending_count(string $html): int
+{
+    return workflow_xpath($html)->query('//section[@aria-labelledby="overspending-alert-title"]/ul/li')->length;
+}
+
+function workflow_overspending_toasts(string $html): int
+{
+    return workflow_xpath($html)->query('//div[@data-flash-message and @data-type="warning" and starts-with(@data-message,"Overspending alert:")]')->length;
+}
+
 function workflow_client(): CurlHandle
 {
     $client = curl_init();
@@ -325,7 +335,7 @@ try {
     $assertState('975.00', 1, null);
 
     $limitFields = [
-        'csrf_token' => $csrf, 'action' => 'create', 'name' => 'Workflow limit ' . $suffix,
+        'csrf_token' => $csrf, 'action' => 'create', 'name' => 'Workflow <limit> & meals ' . $suffix,
         'category' => 'category:' . $categoryName, 'amount' => '100.00', 'currency_code' => 'PHP',
         'period' => 'monthly', 'start_date' => $today->modify('first day of this month')->format('Y-m-d'),
         'end_date' => '', 'is_recurring' => '1',
@@ -339,6 +349,112 @@ try {
     $limitCard = workflow_text($limitDashboard['body'], '//article[@id="expenses"]');
     workflow_assert(str_contains($limitCard, $categoryName) && str_contains($limitCard, 'PHP 25.00 / PHP 100.00'),
         'Category-scoped limit sums negative expenses as positive spending.');
+    workflow_assert(workflow_overspending_count($limitDashboard['body']) === 0, 'Spending below a limit does not alert.');
+
+    $ignoredInsert = $pdo->prepare('INSERT INTO transactions (user_id,wallet_id,category,amount,transaction_date) VALUES (?,?,?,?,?)');
+    $ignoredIds = [];
+    foreach ([
+        [$userId, $wallets['php'], $categoryName, '-500.00', $today->modify('+1 day')],
+        [$userId, $wallets['usd'], $categoryName, '-500.00', $today],
+        [$userId, $wallets['archived'], $categoryName, '-500.00', $today],
+        [$foreignUserId, $wallets['foreign'], $foreignCategoryName, '-500.00', $today],
+        [$userId, $wallets['php'], 'Another category', '-500.00', $today],
+        [$userId, $wallets['php'], $categoryName, '500.00', $today],
+    ] as [$owner, $wallet, $ignoredCategory, $ignoredAmount, $date]) {
+        $ignoredInsert->execute([$owner, $wallet, $ignoredCategory, $ignoredAmount, $date->format('Y-m-d') . ' 12:00:00']);
+        $ignoredIds[] = (int) $pdo->lastInsertId();
+    }
+    $scopedLimits = workflow_request($client, 'expenses.php');
+    workflow_assert($scopedLimits['status'] === 200 && workflow_overspending_count($scopedLimits['body']) === 0,
+        'Future, archived, foreign-user, other-currency and other-category entries do not cause a false alert.');
+
+    $limitFields['action'] = 'update';
+    $limitFields['budget_id'] = $limit['id'];
+    $limitFields['amount'] = '20.00';
+    workflow_assert(workflow_request($client, 'expenses.php', $limitFields)['status'] === 302, 'Lowering a limit redirects.');
+    $overPage = workflow_request($client, 'expenses.php');
+    workflow_assert($overPage['status'] === 200 && workflow_overspending_count($overPage['body']) === 1,
+        'An exceeded category limit displays a persistent alert.');
+    $overText = workflow_text($overPage['body'], '//section[@aria-labelledby="overspending-alert-title"]');
+    workflow_assert(str_contains($overText, 'PHP 5.00 over limit') && str_contains($overText, 'PHP 25.00 spent / 20.00 limit'),
+        'Alert shows the exact excess and scoped spending total.');
+    workflow_assert(workflow_overspending_toasts($overPage['body']) === 1, 'A newly exceeded limit creates one warning toast.');
+    workflow_assert(str_contains($overPage['body'], htmlspecialchars($limitFields['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')),
+        'Limit names are escaped in alerts.');
+    $overDashboard = workflow_request($client, 'index.php?currency=PHP');
+    workflow_assert(workflow_overspending_count($overDashboard['body']) === 1 && workflow_overspending_toasts($overDashboard['body']) === 0,
+        'Overview retains the warning without repeating the same toast.');
+    $limitFields['amount'] = '15.00';
+    workflow_request($client, 'expenses.php', $limitFields);
+    $worsePage = workflow_request($client, 'expenses.php');
+    workflow_assert(workflow_overspending_toasts($worsePage['body']) === 1
+        && str_contains(workflow_text($worsePage['body'], '//section[@aria-labelledby="overspending-alert-title"]'), 'PHP 10.00 over limit'),
+        'Increasing the excess produces a fresh warning.');
+    $limitFields['amount'] = '25.00';
+    workflow_request($client, 'expenses.php', $limitFields);
+    $atLimitPage = workflow_request($client, 'expenses.php');
+    workflow_assert(workflow_overspending_count($atLimitPage['body']) === 0 && workflow_overspending_toasts($atLimitPage['body']) === 0,
+        'Exactly at the limit clears the alert.');
+
+    $pennyFields = $fields;
+    $pennyFields['action'] = 'add_expense';
+    $pennyFields['expense_amount'] = '0.01';
+    $pennyFields['expense_description'] = 'Overspending penny ' . $suffix;
+    unset($pennyFields['expense_id']);
+    workflow_assert(workflow_request($client, 'expenses.php', $pennyFields)['status'] === 302, 'A one-cent expense saves.');
+    $pennyPage = workflow_request($client, 'expenses.php');
+    workflow_assert(workflow_overspending_toasts($pennyPage['body']) === 1
+        && str_contains(workflow_text($pennyPage['body'], '//section[@aria-labelledby="overspending-alert-title"]'), 'PHP 0.01 over limit'),
+        'Saving an expense one cent over a resolved limit triggers the alert again.');
+    $pennyQuery = $pdo->prepare('SELECT id FROM transactions WHERE user_id=? AND description=?');
+    $pennyQuery->execute([$userId, $pennyFields['expense_description']]);
+    $pennyId = (int) $pennyQuery->fetchColumn();
+    workflow_request($client, 'expenses.php', ['csrf_token' => $csrf, 'action' => 'delete_expense', 'expense_id' => $pennyId]);
+    $resolvedPage = workflow_request($client, 'expenses.php');
+    workflow_assert(workflow_overspending_count($resolvedPage['body']) === 0, 'Deleting the excess expense clears the warning.');
+    $limitFields['category'] = '';
+    $limitFields['amount'] = '20.00';
+    workflow_request($client, 'expenses.php', $limitFields);
+    $allCategoriesPage = workflow_request($client, 'expenses.php');
+    workflow_assert(str_contains(workflow_text($allCategoriesPage['body'], '//section[@aria-labelledby="overspending-alert-title"]'), 'PHP 505.00 over limit'),
+        'An all-category limit includes other spending categories.');
+    $limitFields['category'] = 'category:' . $categoryName;
+    $limitFields['amount'] = '100.00';
+    workflow_request($client, 'expenses.php', $limitFields);
+    workflow_request($client, 'expenses.php');
+
+    $extraLimitInsert = $pdo->prepare('INSERT INTO expense_limits (user_id,name,category,amount,currency_code,period,start_date,end_date,is_recurring) VALUES (?,?,?,?,?,?,?,?,?)');
+    $extraLimitIds = [];
+    foreach ([
+        [$userId, 'Weekly warning', $categoryName, '5.00', 'PHP', 'weekly', $today, null, 1],
+        [$userId, 'Yearly warning', $categoryName, '5.00', 'PHP', 'yearly', $today, null, 1],
+        [$userId, 'USD warning', $categoryName, '5.00', 'USD', 'monthly', $today, null, 1],
+        [$foreignUserId, 'Private foreign limit', $foreignCategoryName, '1.00', 'PHP', 'monthly', $today, null, 1],
+        [$userId, 'Expired limit', $categoryName, '1.00', 'PHP', 'weekly', $today->modify('-21 days'), $today->modify('-15 days'), 0],
+        [$userId, 'Stopped limit', $categoryName, '1.00', 'PHP', 'weekly', $today->modify('-7 days'), $today->modify('-1 day'), 1],
+        [$userId, 'Future limit', $categoryName, '1.00', 'PHP', 'weekly', $today->modify('+1 day'), null, 1],
+        [$userId, 'Prior-period spending', 'Rollover only', '100.00', 'PHP', 'weekly', $today->modify('-7 days'), null, 1],
+    ] as [$owner, $limitName, $limitCategory, $limitAmount, $limitCurrency, $limitPeriod, $start, $end, $recurring]) {
+        $extraLimitInsert->execute([$owner, $limitName, $limitCategory, $limitAmount, $limitCurrency, $limitPeriod,
+            $start->format('Y-m-d'), $end?->format('Y-m-d'), $recurring]);
+        $extraLimitIds[] = (int) $pdo->lastInsertId();
+    }
+    $ignoredInsert->execute([$userId, $wallets['php'], 'Rollover only', '-1000.00', $today->modify('-1 day')->format('Y-m-d') . ' 12:00:00']);
+    $ignoredIds[] = (int) $pdo->lastInsertId();
+    $multiPage = workflow_request($client, 'index.php?currency=PHP');
+    workflow_assert($multiPage['status'] === 200 && workflow_overspending_count($multiPage['body']) === 3,
+        'Weekly, yearly and other-currency limits alert; inactive, foreign and prior-period limits do not.');
+    $multiText = workflow_text($multiPage['body'], '//section[@aria-labelledby="overspending-alert-title"]');
+    workflow_assert(str_contains($multiText, 'Weekly warning') && str_contains($multiText, 'Yearly warning')
+        && str_contains($multiText, 'PHP 20.00 over limit') && str_contains($multiText, 'USD 495.00 over limit'),
+        'Each currency and period keeps its own excess amount.');
+    workflow_assert(workflow_overspending_toasts($multiPage['body']) === 1, 'Multiple exceeded limits produce one summarized toast.');
+    $switchedCurrency = workflow_request($client, 'index.php?currency=USD');
+    workflow_assert(workflow_overspending_count($switchedCurrency['body']) === 3 && workflow_overspending_toasts($switchedCurrency['body']) === 0,
+        'Switching dashboard currency does not reset or duplicate alerts.');
+    $pdo->prepare('DELETE FROM expense_limits WHERE id IN (' . implode(',', array_fill(0, count($extraLimitIds), '?')) . ')')->execute($extraLimitIds);
+    $pdo->prepare('DELETE FROM transactions WHERE id IN (' . implode(',', array_fill(0, count($ignoredIds), '?')) . ')')->execute($ignoredIds);
+
     $limitFields['action'] = 'update';
     $limitFields['budget_id'] = $limit['id'];
     $limitFields['category'] = '';
@@ -414,10 +530,69 @@ try {
         'csrf_token' => $csrf, 'action' => 'delete_expense', 'expense_id' => $transactionId,
     ])['status'] === 302, 'Expense delete redirects.');
     $balanceQuery->execute([$wallets['php']]);
-    workflow_assert($balanceQuery->fetchColumn() === '1000.00', 'Deleting a negative expense restores the wallet balance.');
+    workflow_assert($balanceQuery->fetchColumn() === '517.00', 'Deleting an expense reverses its amount while preserving other trigger-managed transactions.');
     $deletedExpense = $pdo->prepare('SELECT id FROM transactions WHERE id=? AND user_id=?');
     $deletedExpense->execute([$transactionId, $userId]);
     workflow_assert($deletedExpense->fetch() === false, 'Deleted expense is removed.');
+
+    $walletFields = [
+        'csrf_token' => $csrf, 'action' => 'create', 'name' => 'Procedure wallet ' . $suffix,
+        'account_type' => 'cash', 'current_balance' => '123.45', 'currency_code' => 'PHP',
+    ];
+    workflow_assert(workflow_request($client, 'wallet.php', $walletFields)['status'] === 302, 'Wallet form calls the creation procedure.');
+    $createdWalletQuery = $pdo->prepare('SELECT id,name,current_balance,is_archived FROM wallets WHERE user_id=? AND name=?');
+    $createdWalletQuery->execute([$userId, $walletFields['name']]);
+    $createdWallet = $createdWalletQuery->fetch();
+    workflow_assert($createdWallet !== false && $createdWallet['current_balance'] === '123.45', 'Wallet procedure preserves the starting balance.');
+    $walletFields['action'] = 'update';
+    $walletFields['account_id'] = $createdWallet['id'];
+    $walletFields['name'] .= ' renamed';
+    workflow_assert(workflow_request($client, 'wallet.php', $walletFields)['status'] === 302, 'Wallet form calls the update procedure.');
+    foreach (['archive' => 1, 'restore' => 0] as $walletAction => $expectedArchived) {
+        workflow_assert(workflow_request($client, 'wallet.php', [
+            'csrf_token' => $csrf, 'action' => $walletAction, 'account_id' => $createdWallet['id'],
+        ])['status'] === 302, 'Wallet archive/restore calls its procedure.');
+        $createdWalletQuery->execute([$userId, $walletFields['name']]);
+        workflow_assert((int) $createdWalletQuery->fetch()['is_archived'] === $expectedArchived, 'Wallet archive state persists.');
+    }
+    $goalFields = [
+        'csrf_token' => $csrf, 'action' => 'create', 'name' => 'Procedure goal ' . $suffix,
+        'description' => 'Database integration test', 'target_amount' => '100.00', 'currency_code' => 'PHP',
+        'target_date' => $today->modify('+1 year')->format('Y-m-d'),
+    ];
+    workflow_assert(workflow_request($client, 'savings.php', $goalFields)['status'] === 302, 'Savings form calls the goal procedure.');
+    $createdGoalQuery = $pdo->prepare('SELECT id,status,saved,contribution_count FROM vw_savings_goal_progress WHERE user_id=? AND name=?');
+    $createdGoalQuery->execute([$userId, $goalFields['name']]);
+    $createdGoal = $createdGoalQuery->fetch();
+    workflow_assert($createdGoal !== false && $createdGoal['saved'] === '0.00', 'Savings view supplies the new goal progress.');
+    $goalFields['action'] = 'update';
+    $goalFields['goal_id'] = $createdGoal['id'];
+    workflow_assert(workflow_request($client, 'savings.php', $goalFields)['status'] === 302, 'Savings form calls the update procedure.');
+    foreach (['paused', 'active'] as $goalStatus) {
+        workflow_assert(workflow_request($client, 'savings.php', [
+            'csrf_token' => $csrf, 'action' => 'status', 'goal_id' => $createdGoal['id'], 'status' => $goalStatus,
+        ])['status'] === 302, 'Goal status calls its procedure.');
+    }
+    foreach (['40.00', '60.00'] as $contributionAmount) {
+        workflow_assert(workflow_request($client, 'savings.php', [
+            'csrf_token' => $csrf, 'action' => 'contribute', 'goal_id' => $createdGoal['id'],
+            'account_id' => $createdWallet['id'], 'amount' => $contributionAmount, 'note' => 'Procedure test',
+        ])['status'] === 302, 'Contribution form calls its procedure.');
+    }
+    $createdGoalQuery->execute([$userId, $goalFields['name']]);
+    $goalProgress = $createdGoalQuery->fetch();
+    workflow_assert($goalProgress['status'] === 'completed' && $goalProgress['saved'] === '100.00'
+        && (int) $goalProgress['contribution_count'] === 2, 'Contribution trigger completes the goal and the view summarizes it.');
+    $balanceQuery->execute([$createdWallet['id']]);
+    workflow_assert($balanceQuery->fetchColumn() === '123.45', 'Savings contributions remain separate from wallet balance changes.');
+    $savingsPage = workflow_request($client, 'savings.php?view=achieved');
+    workflow_assert($savingsPage['status'] === 200 && str_contains($savingsPage['body'], $goalFields['name']), 'Savings page renders the procedure-backed completed goal.');
+    workflow_assert(workflow_request($client, 'savings.php', [
+        'csrf_token' => $csrf, 'action' => 'delete', 'goal_id' => $createdGoal['id'],
+    ])['status'] === 302, 'Savings delete calls its procedure.');
+    $remainingContributions = $pdo->prepare('SELECT COUNT(*) FROM savings_contributions WHERE savings_goal_id=?');
+    $remainingContributions->execute([$createdGoal['id']]);
+    workflow_assert((int) $remainingContributions->fetchColumn() === 0, 'Deleting a savings goal removes its contributions.');
 
     $emptyClient = workflow_client();
     workflow_login($emptyClient, $emails['empty'], $password);
