@@ -78,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
 
             if ($action === 'create') {
+                $pdo->beginTransaction();
                 $statement = $pdo->prepare(
                     'INSERT INTO transactions
                         (user_id, wallet_id, category, transaction_type, amount, description, transaction_date)
@@ -85,29 +86,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         (:user_id, :account_id, :category_id, \'income\', :amount, :description, :transaction_date)'
                 );
                 $statement->execute($parameters);
+                wallet_apply_transaction_to_current_balance(
+                    $pdo,
+                    $walletUserId,
+                    (int) $accountId,
+                    'income',
+                    $amount
+                );
+                $pdo->commit();
                 wallet_set_flash('success', 'Income recorded.');
             } else {
-                $parameters['id'] = $transactionId;
-                $statement = $pdo->prepare(
-                    'UPDATE transactions
-                     SET wallet_id = :account_id,
-                        category = :category_id,
-                        amount = :amount,
-                        description = :description,
-                        transaction_date = :transaction_date
-                     WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+                $pdo->beginTransaction();
+                $existingStatement = $pdo->prepare(
+                    'SELECT wallet_id, amount FROM transactions
+                     WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\'
+                     FOR UPDATE'
                 );
-                $statement->execute($parameters);
-                wallet_set_flash('success', 'Income updated.');
+                $existingStatement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
+                $existingIncome = $existingStatement->fetch();
+
+                if ($existingIncome === false) {
+                    $pdo->rollBack();
+                    wallet_set_flash('error', 'That income could not be found.');
+                } else {
+                    $parameters['id'] = $transactionId;
+                    $statement = $pdo->prepare(
+                        'UPDATE transactions
+                         SET wallet_id = :account_id,
+                            category = :category_id,
+                            amount = :amount,
+                            description = :description,
+                            transaction_date = :transaction_date
+                         WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+                    );
+                    $statement->execute($parameters);
+                    wallet_apply_transaction_to_current_balance(
+                        $pdo,
+                        $walletUserId,
+                        (int) $existingIncome['wallet_id'],
+                        'income',
+                        (string) $existingIncome['amount'],
+                        true
+                    );
+                    wallet_apply_transaction_to_current_balance(
+                        $pdo,
+                        $walletUserId,
+                        (int) $accountId,
+                        'income',
+                        $amount
+                    );
+                    $pdo->commit();
+                    wallet_set_flash('success', 'Income updated.');
+                }
             }
         }
     } elseif ($action === 'delete' && $transactionId !== false) {
-        $statement = $pdo->prepare(
-            'DELETE FROM transactions
-             WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+        $pdo->beginTransaction();
+        $existingStatement = $pdo->prepare(
+            'SELECT wallet_id, amount FROM transactions
+             WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\'
+             FOR UPDATE'
         );
-        $statement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
-        wallet_set_flash('success', 'Income deleted.');
+        $existingStatement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
+        $existingIncome = $existingStatement->fetch();
+
+        if ($existingIncome === false) {
+            $pdo->rollBack();
+            wallet_set_flash('error', 'That income could not be found.');
+        } else {
+            $statement = $pdo->prepare(
+                'DELETE FROM transactions
+                 WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+            );
+            $statement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
+            wallet_apply_transaction_to_current_balance(
+                $pdo,
+                $walletUserId,
+                (int) $existingIncome['wallet_id'],
+                'income',
+                (string) $existingIncome['amount'],
+                true
+            );
+            $pdo->commit();
+            wallet_set_flash('success', 'Income deleted.');
+        }
     } else {
         wallet_set_flash('error', 'That income action could not be completed.');
     }

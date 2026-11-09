@@ -87,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
 
             if ($action === 'add_expense') {
+                $pdo->beginTransaction();
                 $statement = $pdo->prepare(
                     'INSERT INTO transactions
                         (user_id, wallet_id, category, transaction_type, amount, description, transaction_date)
@@ -94,20 +95,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         (:user_id, :account_id, :category_id, \'expense\', :amount, :description, :transaction_date)'
                 );
                 $statement->execute($parameters);
+                wallet_apply_transaction_to_current_balance(
+                    $pdo,
+                    $walletUserId,
+                    (int) $accountId,
+                    'expense',
+                    $amount
+                );
+                $pdo->commit();
                 wallet_set_flash('success', 'Expense added to your wallet.');
             } else {
-                $parameters['id'] = $expenseId;
-                $statement = $pdo->prepare(
-                    'UPDATE transactions
-                     SET wallet_id = :account_id,
-                        category = :category_id,
-                        amount = :amount,
-                        description = :description,
-                        transaction_date = :transaction_date
-                     WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
+                $pdo->beginTransaction();
+                $existingStatement = $pdo->prepare(
+                    'SELECT wallet_id, amount FROM transactions
+                     WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\'
+                     FOR UPDATE'
                 );
-                $statement->execute($parameters);
-                wallet_set_flash('success', 'Expense updated.');
+                $existingStatement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
+                $existingExpense = $existingStatement->fetch();
+
+                if ($existingExpense === false) {
+                    $pdo->rollBack();
+                    wallet_set_flash('error', 'That expense could not be found.');
+                } else {
+                    $parameters['id'] = $expenseId;
+                    $statement = $pdo->prepare(
+                        'UPDATE transactions
+                         SET wallet_id = :account_id,
+                            category = :category_id,
+                            amount = :amount,
+                            description = :description,
+                            transaction_date = :transaction_date
+                         WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
+                    );
+                    $statement->execute($parameters);
+                    wallet_apply_transaction_to_current_balance(
+                        $pdo,
+                        $walletUserId,
+                        (int) $existingExpense['wallet_id'],
+                        'expense',
+                        (string) $existingExpense['amount'],
+                        true
+                    );
+                    wallet_apply_transaction_to_current_balance(
+                        $pdo,
+                        $walletUserId,
+                        (int) $accountId,
+                        'expense',
+                        $amount
+                    );
+                    $pdo->commit();
+                    wallet_set_flash('success', 'Expense updated.');
+                }
             }
         }
     } elseif ($action === 'delete_expense') {
@@ -115,16 +154,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($expenseId === false) {
             wallet_set_flash('error', 'That expense could not be found.');
         } else {
-            $statement = $pdo->prepare(
-                'DELETE FROM transactions
-                 WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
+            $pdo->beginTransaction();
+            $existingStatement = $pdo->prepare(
+                'SELECT wallet_id, amount FROM transactions
+                 WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\'
+                 FOR UPDATE'
             );
-            $statement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
-            $deleted = $statement->rowCount() > 0;
-            wallet_set_flash(
-                $deleted ? 'success' : 'error',
-                $deleted ? 'Expense deleted.' : 'That expense could not be found.'
-            );
+            $existingStatement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
+            $existingExpense = $existingStatement->fetch();
+
+            if ($existingExpense === false) {
+                $pdo->rollBack();
+                wallet_set_flash('error', 'That expense could not be found.');
+            } else {
+                $statement = $pdo->prepare(
+                    'DELETE FROM transactions
+                     WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
+                );
+                $statement->execute(['id' => $expenseId, 'user_id' => $walletUserId]);
+                wallet_apply_transaction_to_current_balance(
+                    $pdo,
+                    $walletUserId,
+                    (int) $existingExpense['wallet_id'],
+                    'expense',
+                    (string) $existingExpense['amount'],
+                    true
+                );
+                $pdo->commit();
+                wallet_set_flash('success', 'Expense deleted.');
+            }
         }
     } elseif (in_array($action, ['create', 'update'], true)) {
         $name = wallet_post_string('name');

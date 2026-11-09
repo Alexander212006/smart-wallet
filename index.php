@@ -49,22 +49,11 @@ $recentTransactions = [];
 if ($hasAccounts) {
     $accountStatement = $pdo->prepare(
         'SELECT a.id, a.name, a.wallet_type AS account_type, a.currency_code,
-                a.opening_balance
-                + COALESCE(SUM(
-                    CASE
-                        WHEN t.transaction_type = \'income\' AND t.wallet_id = a.id THEN t.amount
-                        WHEN t.transaction_type = \'expense\' AND t.wallet_id = a.id THEN -t.amount
-                        ELSE 0
-                    END
-                ), 0) AS current_balance
+                a.current_balance
          FROM wallets a
-         LEFT JOIN transactions t
-            ON t.user_id = a.user_id
-            AND t.wallet_id = a.id
          WHERE a.user_id = :user_id
             AND a.currency_code = :currency
             AND a.is_archived = 0
-         GROUP BY a.id, a.name, a.wallet_type, a.currency_code, a.opening_balance
          ORDER BY a.name'
     );
     $accountStatement->execute(['user_id' => $userId, 'currency' => $currency]);

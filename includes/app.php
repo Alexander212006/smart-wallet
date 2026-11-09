@@ -143,6 +143,36 @@ function wallet_valid_signed_amount(string $amount): bool
     return preg_match('/\A-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?\z/', $amount) === 1;
 }
 
+function wallet_apply_transaction_to_current_balance(
+    PDO $pdo,
+    int $userId,
+    int $walletId,
+    string $type,
+    string $amount,
+    bool $reverse = false
+): void {
+    if (!in_array($type, ['income', 'expense'], true) || !wallet_valid_amount($amount)) {
+        throw new InvalidArgumentException('Invalid wallet transaction balance adjustment.');
+    }
+
+    $subtract = ($type === 'expense') !== $reverse;
+    $delta = ($subtract ? '-' : '') . $amount;
+    $statement = $pdo->prepare(
+        'UPDATE wallets
+         SET current_balance = current_balance + :delta
+         WHERE id = :wallet_id AND user_id = :user_id'
+    );
+    $statement->execute([
+        'delta' => $delta,
+        'wallet_id' => $walletId,
+        'user_id' => $userId,
+    ]);
+
+    if ($statement->rowCount() !== 1) {
+        throw new RuntimeException('Wallet current balance could not be updated.');
+    }
+}
+
 function wallet_require_valid_post(): void
 {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

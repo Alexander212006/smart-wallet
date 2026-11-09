@@ -17,25 +17,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create') {
         $name = wallet_post_string('name');
         $type = wallet_post_string('account_type');
-        $openingBalance = wallet_post_string('opening_balance');
+        $currentBalance = wallet_post_string('current_balance');
         $currency = strtoupper(wallet_post_string('currency_code'));
 
         if ($name === '' || strlen($name) > 120 || !in_array($type, $accountTypes, true)) {
             wallet_set_flash('error', 'Enter a valid account name and type.');
-        } elseif (!wallet_valid_signed_amount($openingBalance)) {
-            wallet_set_flash('error', 'Enter a valid opening balance with up to two decimal places.');
+        } elseif (!wallet_valid_signed_amount($currentBalance)) {
+            wallet_set_flash('error', 'Enter a valid current balance with up to two decimal places.');
         } elseif (!in_array($currency, $supportedCurrencies, true)) {
             wallet_set_flash('error', 'Choose a supported currency.');
         } else {
             $statement = $pdo->prepare(
-                'INSERT INTO wallets (user_id, name, wallet_type, opening_balance, currency_code)
-                 VALUES (:user_id, :name, :account_type, :opening_balance, :currency_code)'
+                'INSERT INTO wallets (user_id, name, wallet_type, current_balance, currency_code)
+                 VALUES (:user_id, :name, :account_type, :current_balance, :currency_code)'
             );
             $statement->execute([
                 'user_id' => $walletUserId,
                 'name' => $name,
                 'account_type' => $type,
-                'opening_balance' => $openingBalance,
+                'current_balance' => $currentBalance,
                 'currency_code' => $currency,
             ]);
             wallet_set_flash('success', 'Account created.');
@@ -91,22 +91,7 @@ if ($editId !== false && $editId !== null) {
 }
 
 $accountStatement = $pdo->prepare(
-    'SELECT a.id, a.name, a.wallet_type AS account_type, a.opening_balance, a.currency_code, a.is_archived,
-            a.opening_balance + COALESCE((
-                SELECT SUM(
-                    CASE
-                        WHEN t.transaction_type = \'income\' AND t.wallet_id = a.id THEN t.amount
-                        WHEN t.transaction_type = \'expense\' AND t.wallet_id = a.id THEN -t.amount
-                        ELSE 0
-                    END
-                )
-                FROM transactions t
-                WHERE t.user_id = a.user_id AND t.wallet_id = a.id
-            ), 0) AS current_balance,
-            EXISTS(
-                SELECT 1 FROM transactions t
-                WHERE t.user_id = a.user_id AND t.wallet_id = a.id
-            ) AS has_transactions
+    'SELECT a.id, a.name, a.wallet_type AS account_type, a.current_balance, a.currency_code, a.is_archived
      FROM wallets a
      WHERE a.user_id = :user_id
      ORDER BY a.is_archived, a.name'
@@ -225,8 +210,8 @@ require __DIR__ . '/includes/app_shell_start.php';
             </div>
             <?php if ($editAccount === null): ?>
                 <div>
-                    <label for="opening_balance" class="mb-1.5 block text-sm font-medium text-slate-700">Opening balance</label>
-                    <input id="opening_balance" name="opening_balance" type="number" step="0.01" value="0.00" required class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                    <label for="current_balance" class="mb-1.5 block text-sm font-medium text-slate-700">Current balance</label>
+                    <input id="current_balance" name="current_balance" type="number" step="0.01" value="0.00" required class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
                     <p class="mt-1.5 text-xs text-slate-400">Use a negative amount for an account that starts in debt.</p>
                 </div>
                 <div>

@@ -23,7 +23,7 @@ CREATE TABLE wallets (
     user_id BIGINT UNSIGNED NOT NULL,
     name VARCHAR(120) NOT NULL,
     wallet_type ENUM('cash', 'checking', 'savings', 'credit', 'investment', 'other') NOT NULL,
-    opening_balance DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    current_balance DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     currency_code CHAR(3) NOT NULL,
     is_archived TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
