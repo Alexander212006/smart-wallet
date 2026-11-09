@@ -1,0 +1,146 @@
+.app-alert-host {
+    position: fixed;
+    z-index: 1000;
+    top: 1rem;
+    right: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+    max-width: min(24rem, calc(100vw - 2.5rem));
+    pointer-events: none;
+}
+
+.app-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #10b981;
+    background: #fff;
+    color: #0f172a;
+    box-shadow:
+        0 1px 3px 0 rgb(0 0 0 / 0.05),
+        0 4px 16px -2px rgb(0 0 0 / 0.06);
+    font: 400 0.8125rem/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+    pointer-events: auto;
+    animation: app-alert-in 180ms ease-out both;
+}
+
+.app-alert--error  { border-left-color: #ef4444; }
+.app-alert--warning { border-left-color: #f59e0b; }
+.app-alert--info   { border-left-color: #3b82f6; }
+
+.app-alert__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 1px;
+    color: #10b981;
+}
+
+.app-alert__icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.app-alert--error  .app-alert__icon { color: #ef4444; }
+.app-alert--warning .app-alert__icon { color: #f59e0b; }
+.app-alert--info   .app-alert__icon { color: #3b82f6; }
+
+.app-alert__body {
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+.app-alert__title {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: #0f172a;
+    text-transform: capitalize;
+}
+
+.app-alert__message {
+    color: #475569;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.app-alert__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: -0.125rem -0.25rem 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: color 100ms ease;
+}
+
+.app-alert__close svg {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+
+.app-alert__close:hover {
+    color: #334155;
+}
+
+.app-alert--leaving {
+    animation: app-alert-out 140ms ease-in both;
+}
+
+.app-alert__progress {
+    position: absolute;
+    bottom: 0;
+    left: 3px;
+    right: 0;
+    height: 2px;
+    border-radius: 0 0 0.5rem 0;
+    background: #10b981;
+    transform-origin: left;
+    animation: app-alert-progress 4500ms linear forwards;
+    opacity: 0.35;
+}
+
+.app-alert--error  .app-alert__progress { background: #ef4444; }
+.app-alert--warning .app-alert__progress { background: #f59e0b; }
+.app-alert--info   .app-alert__progress { background: #3b82f6; }
+
+.app-alert--paused .app-alert__progress { animation-play-state: paused; }
+
+@keyframes app-alert-in {
+    from { opacity: 0; transform: translateX(1rem); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes app-alert-out {
+    to { opacity: 0; transform: translateX(1rem); }
+}
+
+@keyframes app-alert-progress {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-alert,
+    .app-alert--leaving {
+        animation-duration: 1ms !important;
+    }
+}

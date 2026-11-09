@@ -285,6 +285,7 @@ $maxActivity = max([1, ...$activityValues]);
 $formatMoney = static fn (float|int|string $amount): string =>
     ($currency ?? '') . ' ' . number_format((float) $amount, 2);
 $activePage = 'overview';
+$flash = wallet_take_flash();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -293,7 +294,7 @@ $activePage = 'overview';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f6f8f6">
     <title>Overview | Smart Wallet</title>
-    <link rel="stylesheet" href="assets/js/sileo-toast.css?v=<?= filemtime(__DIR__ . '/assets/js/sileo-toast.css') ?>">
+    <link rel="stylesheet" href="assets/css/app-alert.css?v=<?= filemtime(__DIR__ . '/assets/css/app-alert.css') ?>">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body data-app-shell="true" class="min-h-screen bg-[#f6f8f6] font-sans text-slate-900 antialiased">
@@ -358,6 +359,14 @@ $activePage = 'overview';
         <?php $navigationLayout = 'mobile'; require __DIR__ . '/includes/main_navigation.php'; ?>
 
         <main id="overview" tabindex="-1" class="mx-auto max-w-[1440px] space-y-7 px-5 py-8 outline-none sm:px-8 sm:py-10">
+            <?php if ($flash !== null): ?>
+                <div
+                    data-flash-message
+                    data-type="<?= wallet_escape((string) ($flash['type'] ?? 'info')) ?>"
+                    data-message="<?= wallet_escape((string) ($flash['message'] ?? '')) ?>"
+                    hidden
+                ></div>
+            <?php endif; ?>
             <section class="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
                 <div>
                     <p class="text-sm font-medium text-emerald-800"><?= $today->format('l, F j, Y') ?></p>
@@ -652,8 +661,7 @@ $activePage = 'overview';
         </main>
     </div>
 </div>
-<div id="sileo-toaster"></div>
-<script src="assets/js/sileo-toast.js?v=<?= filemtime(__DIR__ . '/assets/js/sileo-toast.js') ?>"></script>
+<script src="assets/js/app-alert.js?v=<?= filemtime(__DIR__ . '/assets/js/app-alert.js') ?>"></script>
 <script src="assets/js/app-navigation.js?v=<?= filemtime(__DIR__ . '/assets/js/app-navigation.js') ?>"></script>
 </body>
 </html>

@@ -7,12 +7,12 @@
     const isInternalPhpUrl = (url) =>
         url.origin === window.location.origin && url.pathname.toLowerCase().endsWith('.php');
 
-    const showToast = (type, message) => {
-        window.sileoAlert(type, message);
+    const showAlert = (type, message) => {
+        window.walletAlert(type, message);
     };
 
     const showError = (message) => {
-        showToast('error', message);
+        showAlert('error', message);
     };
 
     const createActionConfirmation = () => {
@@ -135,7 +135,7 @@
 
     const initializeFlashMessages = (root = document) => {
         root.querySelectorAll('[data-flash-message]').forEach((flash) => {
-            showToast(flash.dataset.type || 'info', flash.dataset.message || flash.textContent.trim());
+            showAlert(flash.dataset.type || 'info', flash.dataset.message || flash.textContent.trim());
             flash.remove();
         });
     };
