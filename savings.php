@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $accountIsValid = false;
             } else {
                 $accountStatement = $pdo->prepare(
-                    'SELECT id FROM accounts
+                    'SELECT id FROM wallets
                      WHERE id = :id AND user_id = :user_id
                         AND currency_code = :currency AND is_archived = 0'
                 );
@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $pdo->beginTransaction();
             $insertStatement = $pdo->prepare(
-                'INSERT INTO savings_contributions (savings_goal_id, account_id, amount, contribution_date, note)
+                'INSERT INTO savings_contributions (savings_goal_id, wallet_id, amount, contribution_date, note)
                  VALUES (:goal_id, :account_id, :amount, :contribution_date, :note)'
             );
             $insertStatement->execute([
@@ -201,7 +201,7 @@ $goals = $goalStatement->fetchAll();
 
 $accountStatement = $pdo->prepare(
     'SELECT id, name, currency_code
-     FROM accounts
+     FROM wallets
      WHERE user_id = :user_id AND is_archived = 0
      ORDER BY name'
 );
@@ -212,7 +212,7 @@ $contributionStatement = $pdo->prepare(
     'SELECT sc.savings_goal_id, sc.amount, sc.contribution_date, sc.note, a.name AS account_name
      FROM savings_contributions sc
      INNER JOIN savings_goals g ON g.id = sc.savings_goal_id AND g.user_id = :user_id
-     LEFT JOIN accounts a ON a.id = sc.account_id AND a.user_id = :account_user_id
+     LEFT JOIN wallets a ON a.id = sc.wallet_id AND a.user_id = :account_user_id
      ORDER BY sc.contribution_date DESC, sc.id DESC
      LIMIT 100'
 );

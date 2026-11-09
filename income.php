@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $transactionDate = wallet_post_string('transaction_date');
 
         $accountStatement = $pdo->prepare(
-            'SELECT id FROM accounts WHERE id = :id AND user_id = :user_id AND is_archived = 0'
+            'SELECT id FROM wallets WHERE id = :id AND user_id = :user_id AND is_archived = 0'
         );
         $accountStatement->execute(['id' => $accountId, 'user_id' => $walletUserId]);
         $validAccount = $accountStatement->fetchColumn() !== false;
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'create') {
                 $statement = $pdo->prepare(
                     'INSERT INTO transactions
-                        (user_id, account_id, category_id, transaction_type, amount, description, transaction_date)
+                        (user_id, wallet_id, category, transaction_type, amount, description, transaction_date)
                      VALUES
                         (:user_id, :account_id, :category_id, \'income\', :amount, :description, :transaction_date)'
                 );
@@ -90,8 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $parameters['id'] = $transactionId;
                 $statement = $pdo->prepare(
                     'UPDATE transactions
-                     SET account_id = :account_id,
-                        category_id = :category_id,
+                     SET wallet_id = :account_id,
+                        category = :category_id,
                         amount = :amount,
                         description = :description,
                         transaction_date = :transaction_date
@@ -120,7 +120,7 @@ $editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
 $editIncome = null;
 if ($editId !== false && $editId !== null) {
     $editStatement = $pdo->prepare(
-        'SELECT id, account_id, category_id, amount, description, DATE(transaction_date) AS transaction_date
+        'SELECT id, wallet_id AS account_id, category AS category_id, amount, description, DATE(transaction_date) AS transaction_date
          FROM transactions
          WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
     );
@@ -130,7 +130,7 @@ if ($editId !== false && $editId !== null) {
 
 $accountStatement = $pdo->prepare(
     'SELECT id, name, currency_code
-     FROM accounts
+     FROM wallets
      WHERE user_id = :user_id AND is_archived = 0
      ORDER BY name'
 );
@@ -150,13 +150,13 @@ $existingCategoryNames = array_map(
 );
 
 $incomeStatement = $pdo->prepare(
-    'SELECT t.id, t.amount, t.description, t.transaction_date, t.category_id,
+    'SELECT t.id, t.amount, t.description, t.transaction_date, t.category AS category_id,
             a.name AS account_name, a.currency_code, a.is_archived,
             COALESCE(c.name, \'Uncategorized\') AS category_name
      FROM transactions t
-     INNER JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     INNER JOIN wallets a ON a.id = t.wallet_id AND a.user_id = t.user_id
      LEFT JOIN categories c
-        ON c.id = t.category_id AND (c.user_id = t.user_id OR c.user_id IS NULL)
+        ON c.id = t.category AND (c.user_id = t.user_id OR c.user_id IS NULL)
      WHERE t.user_id = :user_id AND t.transaction_type = \'income\'
      ORDER BY t.transaction_date DESC, t.id DESC
      LIMIT 100'

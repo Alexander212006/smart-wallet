@@ -6,6 +6,7 @@ require_once __DIR__ . '/includes/app.php';
 
 $pdo = getDatabaseConnection();
 $accountTypes = ['cash', 'checking', 'savings', 'credit', 'investment', 'other'];
+$supportedCurrencies = ['PHP', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'SGD'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
@@ -23,11 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             wallet_set_flash('error', 'Enter a valid account name and type.');
         } elseif (!wallet_valid_signed_amount($openingBalance)) {
             wallet_set_flash('error', 'Enter a valid opening balance with up to two decimal places.');
-        } elseif (!wallet_valid_currency($currency)) {
-            wallet_set_flash('error', 'Enter a valid three-letter currency code, such as USD.');
+        } elseif (!in_array($currency, $supportedCurrencies, true)) {
+            wallet_set_flash('error', 'Choose a supported currency.');
         } else {
             $statement = $pdo->prepare(
-                'INSERT INTO accounts (user_id, name, account_type, opening_balance, currency_code)
+                'INSERT INTO wallets (user_id, name, wallet_type, opening_balance, currency_code)
                  VALUES (:user_id, :name, :account_type, :opening_balance, :currency_code)'
             );
             $statement->execute([
@@ -47,8 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             wallet_set_flash('error', 'Enter a valid account name and type.');
         } else {
             $statement = $pdo->prepare(
-                'UPDATE accounts
-                 SET name = :name, account_type = :account_type
+                'UPDATE wallets
+                 SET name = :name, wallet_type = :account_type
                  WHERE id = :id AND user_id = :user_id'
             );
             $statement->execute([
@@ -62,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (in_array($action, ['archive', 'restore'], true) && $accountId !== false) {
         $archived = $action === 'archive' ? 1 : 0;
         $statement = $pdo->prepare(
-            'UPDATE accounts SET is_archived = :is_archived WHERE id = :id AND user_id = :user_id'
+            'UPDATE wallets SET is_archived = :is_archived WHERE id = :id AND user_id = :user_id'
         );
         $statement->execute([
             'is_archived' => $archived,
@@ -83,32 +84,30 @@ $editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
 $editAccount = null;
 if ($editId !== false && $editId !== null) {
     $editStatement = $pdo->prepare(
-        'SELECT id, name, account_type FROM accounts WHERE id = :id AND user_id = :user_id'
+        'SELECT id, name, wallet_type AS account_type FROM wallets WHERE id = :id AND user_id = :user_id'
     );
     $editStatement->execute(['id' => $editId, 'user_id' => $walletUserId]);
     $editAccount = $editStatement->fetch() ?: null;
 }
 
 $accountStatement = $pdo->prepare(
-    'SELECT a.id, a.name, a.account_type, a.opening_balance, a.currency_code, a.is_archived,
+    'SELECT a.id, a.name, a.wallet_type AS account_type, a.opening_balance, a.currency_code, a.is_archived,
             a.opening_balance + COALESCE((
                 SELECT SUM(
                     CASE
-                        WHEN t.transaction_type = \'income\' AND t.account_id = a.id THEN t.amount
-                        WHEN t.transaction_type = \'expense\' AND t.account_id = a.id THEN -t.amount
-                        WHEN t.transaction_type = \'transfer\' AND t.account_id = a.id THEN -t.amount
-                        WHEN t.transaction_type = \'transfer\' AND t.to_account_id = a.id THEN t.amount
+                        WHEN t.transaction_type = \'income\' AND t.wallet_id = a.id THEN t.amount
+                        WHEN t.transaction_type = \'expense\' AND t.wallet_id = a.id THEN -t.amount
                         ELSE 0
                     END
                 )
                 FROM transactions t
-                WHERE t.user_id = a.user_id AND (t.account_id = a.id OR t.to_account_id = a.id)
+                WHERE t.user_id = a.user_id AND t.wallet_id = a.id
             ), 0) AS current_balance,
             EXISTS(
                 SELECT 1 FROM transactions t
-                WHERE t.user_id = a.user_id AND (t.account_id = a.id OR t.to_account_id = a.id)
+                WHERE t.user_id = a.user_id AND t.wallet_id = a.id
             ) AS has_transactions
-     FROM accounts a
+     FROM wallets a
      WHERE a.user_id = :user_id
      ORDER BY a.is_archived, a.name'
 );
@@ -232,8 +231,12 @@ require __DIR__ . '/includes/app_shell_start.php';
                 </div>
                 <div>
                     <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency code</label>
-                    <input id="currency_code" name="currency_code" type="text" minlength="3" maxlength="3" pattern="[A-Za-z]{3}" value="USD" required class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm uppercase outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
-                    <p class="mt-1.5 text-xs text-slate-400">Three-letter code, for example USD or PHP.</p>
+                    <select id="currency_code" name="currency_code" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                        <?php foreach ($supportedCurrencies as $currencyOption): ?>
+                            <option value="<?= wallet_escape($currencyOption) ?>" <?= $currencyOption === 'PHP' ? 'selected' : '' ?>><?= wallet_escape($currencyOption) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="mt-1.5 text-xs text-slate-400">Choose the currency used by this wallet.</p>
                 </div>
             <?php endif; ?>
             <button type="submit" class="w-full rounded-xl bg-[#123a2c] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#0d3024]">

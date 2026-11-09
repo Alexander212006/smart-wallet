@@ -5,7 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/app.php';
 
 $pdo = getDatabaseConnection();
-$periods = ['weekly', 'monthly', 'yearly', 'custom'];
+$periods = ['weekly', 'monthly', 'yearly'];
 $defaultCategories = ['Food & dining', 'Transportation', 'Housing', 'Utilities', 'Healthcare', 'Shopping', 'Entertainment', 'Education', 'Travel'];
 $currencies = wallet_currency_options($pdo, $walletUserId);
 $today = new DateTimeImmutable('today');
@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $validAccount = false;
         if ($accountId !== false) {
             $accountStatement = $pdo->prepare(
-                'SELECT id FROM accounts WHERE id = :id AND user_id = :user_id AND is_archived = 0'
+                'SELECT id FROM wallets WHERE id = :id AND user_id = :user_id AND is_archived = 0'
             );
             $accountStatement->execute(['id' => $accountId, 'user_id' => $walletUserId]);
             $validAccount = $accountStatement->fetchColumn() !== false;
@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'add_expense') {
                 $statement = $pdo->prepare(
                     'INSERT INTO transactions
-                        (user_id, account_id, category_id, transaction_type, amount, description, transaction_date)
+                        (user_id, wallet_id, category, transaction_type, amount, description, transaction_date)
                      VALUES
                         (:user_id, :account_id, :category_id, \'expense\', :amount, :description, :transaction_date)'
                 );
@@ -99,8 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $parameters['id'] = $expenseId;
                 $statement = $pdo->prepare(
                     'UPDATE transactions
-                     SET account_id = :account_id,
-                        category_id = :category_id,
+                     SET wallet_id = :account_id,
+                        category = :category_id,
                         amount = :amount,
                         description = :description,
                         transaction_date = :transaction_date
@@ -133,8 +133,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $period = wallet_post_string('period');
         $startDate = wallet_post_string('start_date');
         $endDate = wallet_post_string('end_date');
+        $recurringValue = $_POST['is_recurring'] ?? null;
+        $isRecurring = $recurringValue === '1';
         $categoryValue = wallet_post_string('category_id');
-        $categoryId = $categoryValue === '' ? null : filter_var($categoryValue, FILTER_VALIDATE_INT);
+        $isDefaultCategory = substr($categoryValue, 0, 8) === 'default:';
+        $defaultCategory = $isDefaultCategory ? substr($categoryValue, 8) : '';
+        $categoryId = $categoryValue === '' || $isDefaultCategory
+            ? null
+            : filter_var($categoryValue, FILTER_VALIDATE_INT);
         $invalid = $name === ''
             || strlen($name) > 120
             || !wallet_valid_amount($amount)
@@ -143,54 +149,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             || !in_array($period, $periods, true)
             || !wallet_valid_date($startDate)
             || ($endDate !== '' && (!wallet_valid_date($endDate) || $endDate < $startDate))
-            || ($categoryValue !== '' && ($categoryId === false || !wallet_owned_expense_category($pdo, $walletUserId, (int) $categoryId)))
+            || ($recurringValue !== null && $recurringValue !== '1')
+            || ($isDefaultCategory && !in_array($defaultCategory, $defaultCategories, true))
+            || ($categoryValue !== '' && !$isDefaultCategory
+                && ($categoryId === false || !wallet_owned_expense_category($pdo, $walletUserId, (int) $categoryId)))
             || ($action === 'update' && $budgetId === false);
 
         if ($invalid) {
             wallet_set_flash('error', 'Check the budget details and try again. Category must be an expense category you can use.');
-        } elseif ($action === 'create') {
-            $statement = $pdo->prepare(
-                'INSERT INTO budgets (user_id, category_id, name, amount, currency_code, period, start_date, end_date)
-                 VALUES (:user_id, :category_id, :name, :amount, :currency_code, :period, :start_date, :end_date)'
-            );
-            $statement->execute([
-                'user_id' => $walletUserId,
-                'category_id' => $categoryId,
-                'name' => $name,
-                'amount' => $amount,
-                'currency_code' => $currency,
-                'period' => $period,
-                'start_date' => $startDate,
-                'end_date' => $endDate === '' ? null : $endDate,
-            ]);
-            wallet_set_flash('success', 'Budget created.');
         } else {
-            $statement = $pdo->prepare(
-                'UPDATE budgets
-                 SET category_id = :category_id,
-                    name = :name,
-                    amount = :amount,
-                    currency_code = :currency_code,
-                    period = :period,
-                    start_date = :start_date,
-                    end_date = :end_date
-                 WHERE id = :id AND user_id = :user_id'
-            );
-            $statement->execute([
-                'category_id' => $categoryId,
-                'name' => $name,
-                'amount' => $amount,
-                'currency_code' => $currency,
-                'period' => $period,
-                'start_date' => $startDate,
-                'end_date' => $endDate === '' ? null : $endDate,
-                'id' => $budgetId,
-                'user_id' => $walletUserId,
-            ]);
-            wallet_set_flash('success', 'Budget updated.');
+            if ($isDefaultCategory) {
+                $categoryId = wallet_get_or_create_category($pdo, $walletUserId, 'expense', $defaultCategory);
+            }
+
+            if ($action === 'create') {
+                $statement = $pdo->prepare(
+                    'INSERT INTO expense_limits
+                        (user_id, category_id, name, amount, currency_code, period, start_date, end_date, is_recurring)
+                     VALUES
+                        (:user_id, :category_id, :name, :amount, :currency_code, :period, :start_date, :end_date, :is_recurring)'
+                );
+                $statement->execute([
+                    'user_id' => $walletUserId,
+                    'category_id' => $categoryId,
+                    'name' => $name,
+                    'amount' => $amount,
+                    'currency_code' => $currency,
+                    'period' => $period,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate === '' ? null : $endDate,
+                    'is_recurring' => $isRecurring ? 1 : 0,
+                ]);
+                wallet_set_flash('success', 'Budget created.');
+            } else {
+                $statement = $pdo->prepare(
+                    'UPDATE expense_limits
+                     SET category_id = :category_id,
+                        name = :name,
+                        amount = :amount,
+                        currency_code = :currency_code,
+                        period = :period,
+                        start_date = :start_date,
+                        end_date = :end_date,
+                        is_recurring = :is_recurring
+                     WHERE id = :id AND user_id = :user_id'
+                );
+                $statement->execute([
+                    'category_id' => $categoryId,
+                    'name' => $name,
+                    'amount' => $amount,
+                    'currency_code' => $currency,
+                    'period' => $period,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate === '' ? null : $endDate,
+                    'is_recurring' => $isRecurring ? 1 : 0,
+                    'id' => $budgetId,
+                    'user_id' => $walletUserId,
+                ]);
+                wallet_set_flash('success', 'Budget updated.');
+            }
         }
     } elseif ($action === 'delete' && $budgetId !== false) {
-        $statement = $pdo->prepare('DELETE FROM budgets WHERE id = :id AND user_id = :user_id');
+        $statement = $pdo->prepare('DELETE FROM expense_limits WHERE id = :id AND user_id = :user_id');
         $statement->execute(['id' => $budgetId, 'user_id' => $walletUserId]);
         wallet_set_flash('success', 'Budget deleted.');
     } else {
@@ -205,7 +225,7 @@ $editExpenseId = filter_input(INPUT_GET, 'edit_expense', FILTER_VALIDATE_INT);
 $editExpense = null;
 if ($editExpenseId !== false && $editExpenseId !== null) {
     $editExpenseStatement = $pdo->prepare(
-        'SELECT id, account_id, category_id, amount, description, DATE(transaction_date) AS expense_date
+        'SELECT id, wallet_id AS account_id, category AS category_id, amount, description, DATE(transaction_date) AS expense_date
          FROM transactions
          WHERE id = :id AND user_id = :user_id AND transaction_type = \'expense\''
     );
@@ -216,7 +236,7 @@ if ($editExpenseId !== false && $editExpenseId !== null) {
 $editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
 $editBudget = null;
 if ($editId !== false && $editId !== null) {
-    $editStatement = $pdo->prepare('SELECT * FROM budgets WHERE id = :id AND user_id = :user_id');
+    $editStatement = $pdo->prepare('SELECT * FROM expense_limits WHERE id = :id AND user_id = :user_id');
     $editStatement->execute(['id' => $editId, 'user_id' => $walletUserId]);
     $editBudget = $editStatement->fetch() ?: null;
 }
@@ -235,7 +255,7 @@ $existingCategoryNames = array_map(
 
 $accountStatement = $pdo->prepare(
     'SELECT id, name, currency_code
-     FROM accounts
+     FROM wallets
      WHERE user_id = :user_id AND is_archived = 0
      ORDER BY name'
 );
@@ -247,9 +267,9 @@ $expenseEntriesStatement = $pdo->prepare(
             a.name AS account_name, a.currency_code, a.is_archived,
             COALESCE(c.name, \'Uncategorized\') AS category_name
      FROM transactions t
-     INNER JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     INNER JOIN wallets a ON a.id = t.wallet_id AND a.user_id = t.user_id
      LEFT JOIN categories c
-        ON c.id = t.category_id AND (c.user_id = t.user_id OR c.user_id IS NULL)
+        ON c.id = t.category AND (c.user_id = t.user_id OR c.user_id IS NULL)
      WHERE t.user_id = :user_id AND t.transaction_type = \'expense\'
      ORDER BY t.transaction_date DESC, t.id DESC
      LIMIT 100'
@@ -258,9 +278,9 @@ $expenseEntriesStatement->execute(['user_id' => $walletUserId]);
 $expenseEntries = $expenseEntriesStatement->fetchAll();
 
 $budgetStatement = $pdo->prepare(
-    'SELECT b.id, b.name, b.amount, b.currency_code, b.period, b.start_date, b.end_date, b.category_id,
+    'SELECT b.id, b.name, b.amount, b.currency_code, b.period, b.start_date, b.end_date, b.is_recurring, b.category_id,
             COALESCE(c.name, \'All categories\') AS category_name
-     FROM budgets b
+     FROM expense_limits b
      LEFT JOIN categories c ON c.id = b.category_id
      WHERE b.user_id = :user_id
      ORDER BY b.start_date DESC, b.name'
@@ -271,7 +291,7 @@ $budgets = $budgetStatement->fetchAll();
 $expenseStatement = $pdo->prepare(
     'SELECT COALESCE(SUM(t.amount), 0)
      FROM transactions t
-     INNER JOIN accounts a ON a.id = t.account_id
+     INNER JOIN wallets a ON a.id = t.wallet_id
      WHERE t.user_id = :user_id
         AND a.user_id = :account_user_id
         AND a.currency_code = :currency
@@ -279,43 +299,32 @@ $expenseStatement = $pdo->prepare(
         AND t.transaction_type = \'expense\'
         AND t.transaction_date >= :range_start
         AND t.transaction_date < :range_end
-        AND (:include_all_categories = 1 OR t.category_id = :category_id)'
+        AND (:include_all_categories = 1 OR t.category = :category_id)'
 );
 
 foreach ($budgets as &$budget) {
     $period = (string) $budget['period'];
     $activeStart = new DateTimeImmutable((string) $budget['start_date']);
-    $activeEnd = $budget['end_date'] !== null ? new DateTimeImmutable((string) $budget['end_date']) : null;
-
-    if ($period === 'weekly') {
-        $rangeStart = $today->modify('monday this week');
-        $rangeEnd = $rangeStart->modify('+7 days');
-    } elseif ($period === 'yearly') {
-        $rangeStart = $today->setDate((int) $today->format('Y'), 1, 1);
-        $rangeEnd = $rangeStart->modify('+1 year');
-    } elseif ($period === 'custom') {
-        $rangeStart = $activeStart;
-        $rangeEnd = $activeEnd !== null ? $activeEnd->modify('+1 day') : $today->modify('+1 day');
-    } else {
-        $rangeStart = $today->modify('first day of this month');
-        $rangeEnd = $rangeStart->modify('+1 month');
-    }
-
-    if ($rangeStart < $activeStart) {
-        $rangeStart = $activeStart;
-    }
-    if ($activeEnd !== null && $rangeEnd > $activeEnd->modify('+1 day')) {
-        $rangeEnd = $activeEnd->modify('+1 day');
-    }
+    $activeEnd = $budget['end_date'] !== null
+        ? new DateTimeImmutable((string) $budget['end_date'])
+        : null;
+    $range = wallet_expense_limit_date_range(
+        $period,
+        $activeStart,
+        $today,
+        (bool) $budget['is_recurring'],
+        $activeEnd
+    );
 
     $budget['spent'] = 0.0;
-    if ($rangeStart < $rangeEnd && $activeStart <= $today && ($activeEnd === null || $activeEnd >= $rangeStart)) {
+    $budget['range_active'] = $range !== null;
+    if ($range !== null) {
         $expenseStatement->execute([
             'user_id' => $walletUserId,
             'account_user_id' => $walletUserId,
             'currency' => $budget['currency_code'],
-            'range_start' => $rangeStart->format('Y-m-d'),
-            'range_end' => $rangeEnd->format('Y-m-d'),
+            'range_start' => $range['start']->format('Y-m-d'),
+            'range_end' => $range['end']->format('Y-m-d'),
             'include_all_categories' => $budget['category_id'] === null ? 1 : 0,
             'category_id' => $budget['category_id'],
         ]);
@@ -438,7 +447,12 @@ require __DIR__ . '/includes/app_shell_start.php';
                         <div>
                             <h2 class="font-semibold"><?= wallet_escape((string) $budget['name']) ?></h2>
                             <p class="mt-1 text-sm text-slate-500"><?= wallet_escape((string) $budget['category_name']) ?> · <?= wallet_escape(ucfirst((string) $budget['period'])) ?></p>
-                            <p class="mt-1 text-xs text-slate-400">From <?= wallet_escape((string) $budget['start_date']) ?><?= $budget['end_date'] !== null ? ' to ' . wallet_escape((string) $budget['end_date']) : '' ?></p>
+                            <p class="mt-1 text-xs text-slate-400">
+                                <?= (bool) $budget['is_recurring'] ? 'Repeats ' : 'One-time ' ?><?= wallet_escape((string) $budget['period']) ?>
+                                · Starts <?= wallet_escape((string) $budget['start_date']) ?>
+                                <?= $budget['end_date'] !== null ? ' · Ends ' . wallet_escape((string) $budget['end_date']) : '' ?>
+                                <?= !$budget['range_active'] ? ' · Not currently active' : '' ?>
+                            </p>
                         </div>
                         <div class="flex items-center gap-2">
                             <a href="expenses.php?edit=<?= (int) $budget['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
@@ -603,6 +617,11 @@ require __DIR__ . '/includes/app_shell_start.php';
                         <label for="category_id" class="mb-1.5 block text-sm font-medium text-slate-700">Expense category</label>
                         <select id="category_id" name="category_id" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
                             <option value="">All categories</option>
+                            <?php foreach ($defaultCategories as $categoryName): ?>
+                                <?php if (!in_array(strtolower($categoryName), $existingCategoryNames, true)): ?>
+                                    <option value="default:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
                             <?php foreach ($categories as $category): ?>
                                 <option value="<?= (int) $category['id'] ?>" <?= (int) ($editBudget['category_id'] ?? 0) === (int) $category['id'] ? 'selected' : '' ?>><?= wallet_escape((string) $category['name']) ?></option>
                             <?php endforeach; ?>
@@ -616,16 +635,21 @@ require __DIR__ . '/includes/app_shell_start.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="grid gap-4 sm:grid-cols-2">
-                        <div>
-                            <label for="start_date" class="mb-1.5 block text-sm font-medium text-slate-700">Start date</label>
-                            <input id="start_date" name="start_date" type="date" required value="<?= wallet_escape((string) ($editBudget['start_date'] ?? $defaultStart)) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
-                        </div>
-                        <div>
-                            <label for="end_date" class="mb-1.5 block text-sm font-medium text-slate-700">End date <span class="font-normal text-slate-400">optional</span></label>
-                            <input id="end_date" name="end_date" type="date" value="<?= wallet_escape((string) ($editBudget['end_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
-                        </div>
+                    <div>
+                        <label for="start_date" class="mb-1.5 block text-sm font-medium text-slate-700">Start date</label>
+                        <input id="start_date" name="start_date" type="date" required value="<?= wallet_escape((string) ($editBudget['start_date'] ?? $defaultStart)) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
                     </div>
+                    <div>
+                        <label for="end_date" class="mb-1.5 block text-sm font-medium text-slate-700">End date <span class="font-normal text-slate-400">optional</span></label>
+                        <input id="end_date" name="end_date" type="date" value="<?= wallet_escape((string) ($editBudget['end_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
+                    </div>
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200 p-3.5">
+                        <input type="checkbox" name="is_recurring" value="1" <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'checked' : '' ?> class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600">
+                        <span>
+                            <span class="block text-sm font-medium text-slate-700">Recurring expense limit</span>
+                            <span class="mt-0.5 block text-xs text-slate-500">Repeat this limit every selected period from the start date, until the end date if set.</span>
+                        </span>
+                    </label>
                     <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
                         <button type="button" data-close-expense-modal class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
                         <button type="submit" class="rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d3024]">
