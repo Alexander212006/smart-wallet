@@ -28,14 +28,12 @@ function wallet_load_spending_analysis(
     $month = wallet_spending_month($month->format('Y-m'), $today);
     $periodEnd = min($month->modify('+1 month'), $today->setTime(0, 0)->modify('+1 day'));
     $statement = $pdo->prepare(
-        'SELECT t.transaction_date, t.amount, c.id AS category_id,
-                COALESCE(c.name, \'Uncategorized\') AS category_name, t.expense_nature
+        'SELECT t.transaction_date, -t.amount AS amount,
+                COALESCE(t.category, \'Uncategorized\') AS category_name, t.expense_nature
          FROM transactions t
          INNER JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
-         LEFT JOIN categories c ON c.id = t.category AND c.category_type = \'expense\'
-            AND (c.user_id = t.user_id OR c.user_id IS NULL)
          WHERE t.user_id = :user_id AND w.currency_code = :currency
-            AND w.is_archived = 0 AND t.transaction_type = \'expense\'
+            AND w.is_archived = 0 AND t.amount < 0
             AND t.transaction_date >= :period_start AND t.transaction_date < :period_end
          ORDER BY t.transaction_date, t.id'
     );
@@ -138,13 +136,12 @@ function wallet_build_spending_analysis(
 
         $totalCents += $amountCents;
         $transactionCount++;
-        $categoryId = isset($row['category_id']) ? (int) $row['category_id'] : null;
         $categoryName = trim((string) ($row['category_name'] ?? ''));
-        $categoryKey = $categoryId === null ? 'uncategorized' : (string) $categoryId;
+        $categoryName = $categoryName === '' ? 'Uncategorized' : $categoryName;
+        $categoryKey = mb_strtolower($categoryName, 'UTF-8');
         if (!isset($categories[$categoryKey])) {
             $categories[$categoryKey] = [
-                'id' => $categoryId,
-                'name' => $categoryName === '' ? 'Uncategorized' : $categoryName,
+                'name' => $categoryName,
                 'count' => 0,
                 'total_cents' => 0,
                 'share_percent' => 0.0,
@@ -183,7 +180,6 @@ function wallet_build_spending_analysis(
         $right['count'] <=> $left['count']
         ?: $right['total_cents'] <=> $left['total_cents']
         ?: strcasecmp($left['name'], $right['name'])
-        ?: ($left['id'] ?? 0) <=> ($right['id'] ?? 0)
     );
 
     $peakDay = null;

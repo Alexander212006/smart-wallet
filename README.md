@@ -13,7 +13,15 @@ Open **Spending analysis** in the navigation or select **View analysis** on the 
 
 Analysis includes expenses from active wallets in the selected currency. Future-dated entries are excluded. Weeks run Monday through Sunday and include only dates in the selected period.
 
-For a new database, import `database/schema.sql`. For an existing database, run `database/migrations/20261109_add_expense_nature.sql` before using the updated app. The migration adds a nullable column, preserves existing transactions, and can be rerun safely.
+Categories are stored as names in `transactions.category` and `expense_limits.category`. Income amounts are positive and expense amounts are negative; the forms still accept a positive amount. The generated `transactions.transaction_type` column displays `income` or `expense` automatically from the amount. There is no categories table.
+
+For a new database, import `database/schema.sql`. For an existing database, stop application writes and run these migrations in order before using the updated app:
+
+1. `database/migrations/20261109_add_expense_nature.sql`
+2. `database/migrations/20261109_inline_categories.sql`
+3. `database/migrations/20261109_add_transaction_type.sql`
+
+The second migration copies category names into transactions and expense limits, converts expense amounts to negative values, then removes category references, the categories table, and the old writable transaction type column. The third adds a generated type column that stays consistent with the amount. Wallet balances and record timestamps are preserved. All migrations can be rerun safely.
 
 ## Checks
 
@@ -21,6 +29,12 @@ Run the calculation and query-isolation tests with PHP CLI (PDO SQLite required)
 
 ```text
 php tests/spending_analysis_test.php
+```
+
+Test the migration and fresh schema in a disposable MySQL database (requires permission to create databases):
+
+```text
+php tests/category_migration_test.php --run
 ```
 
 To test the expense save/edit flow and rendered analysis against the configured MySQL database, start a local server in one terminal and run the workflow test in another:

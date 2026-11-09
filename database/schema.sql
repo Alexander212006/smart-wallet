@@ -35,21 +35,6 @@ CREATE TABLE wallets (
         ON DELETE CASCADE
 );
 
-CREATE TABLE categories (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id BIGINT UNSIGNED NULL,
-    name VARCHAR(80) NOT NULL,
-    category_type ENUM('income', 'expense') NOT NULL,
-    icon VARCHAR(64) NULL,
-    color CHAR(7) NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_categories_user_type (user_id, category_type),
-    CONSTRAINT fk_categories_user
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE CASCADE
-);
-
 CREATE TABLE savings_goals (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -72,10 +57,12 @@ CREATE TABLE transactions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
     wallet_id BIGINT UNSIGNED NOT NULL,
-    category BIGINT UNSIGNED NULL,
-    transaction_type ENUM('income', 'expense') NOT NULL,
+    category VARCHAR(80) NULL,
     expense_nature ENUM('essential', 'non_essential') NULL DEFAULT NULL,
-    amount DECIMAL(14, 2) NOT NULL,
+    amount DECIMAL(14, 2) NOT NULL COMMENT 'Positive income; negative expense',
+    transaction_type VARCHAR(7) GENERATED ALWAYS AS (
+        CASE WHEN amount < 0 THEN 'expense' WHEN amount > 0 THEN 'income' ELSE NULL END
+    ) STORED,
     description VARCHAR(255) NULL,
     transaction_date DATETIME NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -89,10 +76,7 @@ CREATE TABLE transactions (
         ON DELETE CASCADE,
     CONSTRAINT fk_transactions_wallet
         FOREIGN KEY (wallet_id) REFERENCES wallets (id)
-        ON DELETE RESTRICT,
-    CONSTRAINT fk_transactions_category
-        FOREIGN KEY (category) REFERENCES categories (id)
-        ON DELETE SET NULL
+        ON DELETE RESTRICT
 );
 
 CREATE TABLE savings_contributions (
@@ -117,7 +101,7 @@ CREATE TABLE savings_contributions (
 CREATE TABLE expense_limits (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
-    category_id BIGINT UNSIGNED NULL,
+    category VARCHAR(80) NULL,
     name VARCHAR(120) NOT NULL,
     amount DECIMAL(14, 2) NOT NULL,
     currency_code CHAR(3) NOT NULL,
@@ -129,11 +113,8 @@ CREATE TABLE expense_limits (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_expense_limits_user_dates (user_id, start_date, is_recurring),
-    KEY idx_expense_limits_category_id (category_id),
+    KEY idx_expense_limits_category (category),
     CONSTRAINT fk_expense_limits_user
         FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE CASCADE,
-    CONSTRAINT fk_expense_limits_category
-        FOREIGN KEY (category_id) REFERENCES categories (id)
-        ON DELETE SET NULL
+        ON DELETE CASCADE
 );

@@ -164,16 +164,16 @@ function wallet_apply_transaction_to_current_balance(
     PDO $pdo,
     int $userId,
     int $walletId,
-    string $type,
     string $amount,
     bool $reverse = false
 ): void {
-    if (!in_array($type, ['income', 'expense'], true) || !wallet_valid_amount($amount)) {
+    if (!wallet_valid_signed_amount($amount) || !wallet_valid_amount(ltrim($amount, '-'))) {
         throw new InvalidArgumentException('Invalid wallet transaction balance adjustment.');
     }
 
-    $subtract = ($type === 'expense') !== $reverse;
-    $delta = ($subtract ? '-' : '') . $amount;
+    $delta = $reverse
+        ? (str_starts_with($amount, '-') ? substr($amount, 1) : '-' . $amount)
+        : $amount;
     $statement = $pdo->prepare(
         'UPDATE wallets
          SET current_balance = current_balance + :delta
@@ -203,49 +203,29 @@ function wallet_require_valid_post(): void
     }
 }
 
-function wallet_owned_expense_category(PDO $pdo, int $userId, int $categoryId): bool
+function wallet_valid_category(string $category): bool
 {
-    $statement = $pdo->prepare(
-        'SELECT id FROM categories
-         WHERE id = :category_id
-            AND category_type = \'expense\'
-            AND (user_id = :user_id OR user_id IS NULL)
-         LIMIT 1'
-    );
-    $statement->execute(['category_id' => $categoryId, 'user_id' => $userId]);
-
-    return $statement->fetchColumn() !== false;
+    return trim($category) !== '' && mb_strlen($category, 'UTF-8') <= 80;
 }
 
-function wallet_get_or_create_category(PDO $pdo, int $userId, string $type, string $name): int
+function wallet_category_options(PDO $pdo, int $userId, bool $expenses): array
 {
-    $statement = $pdo->prepare(
-        'SELECT id FROM categories
-         WHERE user_id = :user_id AND category_type = :category_type
-            AND LOWER(name) = LOWER(:name)
-         LIMIT 1'
-    );
-    $statement->execute([
-        'user_id' => $userId,
-        'category_type' => $type,
-        'name' => $name,
-    ]);
-    $categoryId = $statement->fetchColumn();
-    if ($categoryId !== false) {
-        return (int) $categoryId;
+    $comparison = $expenses ? '<' : '>';
+    $sql = 'SELECT DISTINCT category FROM transactions
+            WHERE user_id = :user_id AND amount ' . $comparison . ' 0
+                AND category IS NOT NULL AND TRIM(category) <> \'\'';
+    $parameters = ['user_id' => $userId];
+    if ($expenses) {
+        $sql .= ' UNION SELECT category FROM expense_limits
+                  WHERE user_id = :limit_user_id AND category IS NOT NULL AND TRIM(category) <> \'\'';
+        $parameters['limit_user_id'] = $userId;
     }
-
     $statement = $pdo->prepare(
-        'INSERT INTO categories (user_id, name, category_type)
-         VALUES (:user_id, :name, :category_type)'
+        $sql . ' ORDER BY category'
     );
-    $statement->execute([
-        'user_id' => $userId,
-        'name' => $name,
-        'category_type' => $type,
-    ]);
+    $statement->execute($parameters);
 
-    return (int) $pdo->lastInsertId();
+    return $statement->fetchAll(PDO::FETCH_COLUMN);
 }
 
 function wallet_currency_options(PDO $pdo, int $userId): array

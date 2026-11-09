@@ -8,7 +8,7 @@ USE smart_wallet;
 SET @expense_nature_migration = (
     SELECT IF(
         COUNT(*) = 0,
-        'ALTER TABLE transactions ADD COLUMN expense_nature ENUM(''essential'', ''non_essential'') NULL DEFAULT NULL AFTER transaction_type',
+        'ALTER TABLE transactions ADD COLUMN expense_nature ENUM(''essential'', ''non_essential'') NULL DEFAULT NULL AFTER category',
         'SELECT 1'
     )
     FROM information_schema.COLUMNS

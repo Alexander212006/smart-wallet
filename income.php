@@ -16,14 +16,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (in_array($action, ['create', 'update'], true)) {
         $accountId = filter_var($_POST['account_id'] ?? null, FILTER_VALIDATE_INT);
-        $categoryValue = wallet_post_string('category_id');
-        $customCategory = trim(wallet_post_string('custom_category'));
-        $isOtherCategory = $categoryValue === 'other';
-        $isDefaultCategory = substr($categoryValue, 0, 8) === 'default:';
-        $defaultCategory = $isDefaultCategory ? substr($categoryValue, 8) : '';
-        $categoryId = $categoryValue === '' || $isOtherCategory || $isDefaultCategory
-            ? null
-            : filter_var($categoryValue, FILTER_VALIDATE_INT);
+        $categoryValue = wallet_post_string('category');
+        $category = trim(
+            $categoryValue === 'other'
+                ? wallet_post_string('custom_category')
+                : (str_starts_with($categoryValue, 'category:') ? substr($categoryValue, 9) : '')
+        );
         $amount = wallet_post_string('amount');
         $description = wallet_post_string('description');
         $transactionDate = wallet_post_string('transaction_date');
@@ -34,24 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $accountStatement->execute(['id' => $accountId, 'user_id' => $walletUserId]);
         $validAccount = $accountStatement->fetchColumn() !== false;
 
-        $validCategory = $categoryId === null
-            || ($isDefaultCategory && in_array($defaultCategory, $defaultCategories, true));
-        if ($categoryId !== null && $categoryId !== false) {
-            $categoryStatement = $pdo->prepare(
-                'SELECT id FROM categories
-                 WHERE id = :id AND category_type = \'income\'
-                    AND (user_id = :user_id OR user_id IS NULL)'
-            );
-            $categoryStatement->execute(['id' => $categoryId, 'user_id' => $walletUserId]);
-            $validCategory = $categoryStatement->fetchColumn() !== false;
-        }
-
         $invalid = $accountId === false
             || !$validAccount
-            || $categoryValue === ''
-            || ($categoryValue !== '' && ($categoryId === false || !$validCategory))
-            || ($isOtherCategory && ($customCategory === '' || strlen($customCategory) > 80))
-            || ($isDefaultCategory && !in_array($defaultCategory, $defaultCategories, true))
+            || !wallet_valid_category($category)
             || !wallet_valid_amount($amount)
             || strlen($description) > 255
             || !wallet_valid_date($transactionDate)
@@ -60,17 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($invalid) {
             wallet_set_flash('error', 'Check the income details and try again.');
         } else {
-            if ($isOtherCategory || $isDefaultCategory) {
-                $categoryId = wallet_get_or_create_category(
-                    $pdo,
-                    $walletUserId,
-                    'income',
-                    $isOtherCategory ? $customCategory : $defaultCategory
-                );
-            }
             $parameters = [
                 'account_id' => $accountId,
-                'category_id' => $categoryId,
+                'category' => $category,
                 'amount' => $amount,
                 'description' => $description === '' ? null : $description,
                 'transaction_date' => $transactionDate . ' 12:00:00',
@@ -81,16 +56,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
                 $statement = $pdo->prepare(
                     'INSERT INTO transactions
-                        (user_id, wallet_id, category, transaction_type, amount, description, transaction_date)
+                        (user_id, wallet_id, category, amount, description, transaction_date)
                      VALUES
-                        (:user_id, :account_id, :category_id, \'income\', :amount, :description, :transaction_date)'
+                        (:user_id, :account_id, :category, :amount, :description, :transaction_date)'
                 );
                 $statement->execute($parameters);
                 wallet_apply_transaction_to_current_balance(
                     $pdo,
                     $walletUserId,
                     (int) $accountId,
-                    'income',
                     $amount
                 );
                 $pdo->commit();
@@ -99,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
                 $existingStatement = $pdo->prepare(
                     'SELECT wallet_id, amount FROM transactions
-                     WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\'
+                     WHERE id = :id AND user_id = :user_id AND amount > 0
                      FOR UPDATE'
                 );
                 $existingStatement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
@@ -113,18 +87,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $statement = $pdo->prepare(
                         'UPDATE transactions
                          SET wallet_id = :account_id,
-                            category = :category_id,
+                            category = :category,
                             amount = :amount,
                             description = :description,
                             transaction_date = :transaction_date
-                         WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+                         WHERE id = :id AND user_id = :user_id AND amount > 0'
                     );
                     $statement->execute($parameters);
                     wallet_apply_transaction_to_current_balance(
                         $pdo,
                         $walletUserId,
                         (int) $existingIncome['wallet_id'],
-                        'income',
                         (string) $existingIncome['amount'],
                         true
                     );
@@ -132,7 +105,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo,
                         $walletUserId,
                         (int) $accountId,
-                        'income',
                         $amount
                     );
                     $pdo->commit();
@@ -144,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
         $existingStatement = $pdo->prepare(
             'SELECT wallet_id, amount FROM transactions
-             WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\'
+             WHERE id = :id AND user_id = :user_id AND amount > 0
              FOR UPDATE'
         );
         $existingStatement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
@@ -156,14 +128,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $statement = $pdo->prepare(
                 'DELETE FROM transactions
-                 WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+                 WHERE id = :id AND user_id = :user_id AND amount > 0'
             );
             $statement->execute(['id' => $transactionId, 'user_id' => $walletUserId]);
             wallet_apply_transaction_to_current_balance(
                 $pdo,
                 $walletUserId,
                 (int) $existingIncome['wallet_id'],
-                'income',
                 (string) $existingIncome['amount'],
                 true
             );
@@ -182,9 +153,9 @@ $editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
 $editIncome = null;
 if ($editId !== false && $editId !== null) {
     $editStatement = $pdo->prepare(
-        'SELECT id, wallet_id AS account_id, category AS category_id, amount, description, DATE(transaction_date) AS transaction_date
+        'SELECT id, wallet_id AS account_id, category, amount, description, DATE(transaction_date) AS transaction_date
          FROM transactions
-         WHERE id = :id AND user_id = :user_id AND transaction_type = \'income\''
+         WHERE id = :id AND user_id = :user_id AND amount > 0'
     );
     $editStatement->execute(['id' => $editId, 'user_id' => $walletUserId]);
     $editIncome = $editStatement->fetch() ?: null;
@@ -199,27 +170,20 @@ $accountStatement = $pdo->prepare(
 $accountStatement->execute(['user_id' => $walletUserId]);
 $accounts = $accountStatement->fetchAll();
 
-$categoryStatement = $pdo->prepare(
-    'SELECT id, name FROM categories
-     WHERE category_type = \'income\' AND (user_id = :user_id OR user_id IS NULL)
-     ORDER BY user_id IS NULL, name'
-);
-$categoryStatement->execute(['user_id' => $walletUserId]);
-$categories = $categoryStatement->fetchAll();
-$existingCategoryNames = array_map(
-    static fn (array $category): string => strtolower((string) $category['name']),
-    $categories
-);
+$categories = wallet_category_options($pdo, $walletUserId, false);
+if ($editIncome !== null && $editIncome['category'] !== null
+    && !in_array($editIncome['category'], $categories, true)) {
+    $categories[] = $editIncome['category'];
+}
+$existingCategoryNames = array_map('strtolower', $categories);
 
 $incomeStatement = $pdo->prepare(
-    'SELECT t.id, t.amount, t.description, t.transaction_date, t.category AS category_id,
+    'SELECT t.id, t.amount, t.description, t.transaction_date, t.category,
             a.name AS account_name, a.currency_code, a.is_archived,
-            COALESCE(c.name, \'Uncategorized\') AS category_name
+            COALESCE(t.category, \'Uncategorized\') AS category_name
      FROM transactions t
      INNER JOIN wallets a ON a.id = t.wallet_id AND a.user_id = t.user_id
-     LEFT JOIN categories c
-        ON c.id = t.category AND (c.user_id = t.user_id OR c.user_id IS NULL)
-     WHERE t.user_id = :user_id AND t.transaction_type = \'income\'
+     WHERE t.user_id = :user_id AND t.amount > 0
      ORDER BY t.transaction_date DESC, t.id DESC
      LIMIT 100'
 );
@@ -305,16 +269,16 @@ require __DIR__ . '/includes/app_shell_start.php';
                 </div>
                 <div class="space-y-3" data-category-control>
                     <div>
-                        <label for="income_category_id" class="mb-1.5 block text-sm font-medium text-slate-700">Category</label>
-                        <select id="income_category_id" name="category_id" required data-custom-category-select class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                            <option value="" disabled <?= empty($editIncome['category_id']) ? 'selected' : '' ?>>Select a category</option>
+                        <label for="income_category" class="mb-1.5 block text-sm font-medium text-slate-700">Category</label>
+                        <select id="income_category" name="category" required data-custom-category-select class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            <option value="" disabled <?= ($editIncome['category'] ?? '') === '' ? 'selected' : '' ?>>Select a category</option>
                             <?php foreach ($defaultCategories as $categoryName): ?>
                                 <?php if (!in_array(strtolower($categoryName), $existingCategoryNames, true)): ?>
-                                    <option value="default:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
+                                    <option value="category:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
                                 <?php endif; ?>
                             <?php endforeach; ?>
                             <?php foreach ($categories as $category): ?>
-                                <option value="<?= (int) $category['id'] ?>" <?= (int) ($editIncome['category_id'] ?? 0) === (int) $category['id'] ? 'selected' : '' ?>><?= wallet_escape((string) $category['name']) ?></option>
+                                <option value="category:<?= wallet_escape($category) ?>" <?= ($editIncome['category'] ?? '') === $category ? 'selected' : '' ?>><?= wallet_escape($category) ?></option>
                             <?php endforeach; ?>
                             <option value="other">Other (enter a category)</option>
                         </select>

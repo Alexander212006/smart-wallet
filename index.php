@@ -66,15 +66,14 @@ if ($hasAccounts) {
 
     $monthlyStatement = $pdo->prepare(
         'SELECT
-            COALESCE(SUM(CASE WHEN t.transaction_type = \'income\' THEN t.amount ELSE 0 END), 0) AS income,
-            COALESCE(SUM(CASE WHEN t.transaction_type = \'expense\' THEN t.amount ELSE 0 END), 0) AS expenses
+            COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) AS income,
+            COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS expenses
          FROM transactions t
          INNER JOIN wallets a ON a.id = t.wallet_id
          WHERE t.user_id = :user_id
             AND a.user_id = :account_user_id
             AND a.currency_code = :currency
             AND a.is_archived = 0
-            AND t.transaction_type IN (\'income\', \'expense\')
             AND t.transaction_date >= :month_start
             AND t.transaction_date < :next_month'
     );
@@ -91,15 +90,14 @@ if ($hasAccounts) {
 
     $activityStatement = $pdo->prepare(
         'SELECT DATE(t.transaction_date) AS activity_date,
-                SUM(CASE WHEN t.transaction_type = \'income\' THEN t.amount ELSE 0 END) AS income,
-                SUM(CASE WHEN t.transaction_type = \'expense\' THEN t.amount ELSE 0 END) AS expenses
+                SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income,
+                SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expenses
          FROM transactions t
          INNER JOIN wallets a ON a.id = t.wallet_id
          WHERE t.user_id = :user_id
             AND a.user_id = :account_user_id
             AND a.currency_code = :currency
             AND a.is_archived = 0
-            AND t.transaction_type IN (\'income\', \'expense\')
             AND t.transaction_date >= :activity_start
             AND t.transaction_date < :tomorrow
          GROUP BY DATE(t.transaction_date)'
@@ -157,25 +155,21 @@ if ($hasAccounts) {
     }
 
     $categoryStatement = $pdo->prepare(
-        'SELECT COALESCE(c.name, \'Uncategorized\') AS name, SUM(t.amount) AS total
+        'SELECT COALESCE(t.category, \'Uncategorized\') AS name, SUM(-t.amount) AS total
          FROM transactions t
          INNER JOIN wallets a ON a.id = t.wallet_id
-         LEFT JOIN categories c
-            ON c.id = t.category
-            AND (c.user_id = :category_user_id OR c.user_id IS NULL)
          WHERE t.user_id = :user_id
             AND a.user_id = :account_user_id
             AND a.currency_code = :currency
             AND a.is_archived = 0
-            AND t.transaction_type = \'expense\'
+            AND t.amount < 0
             AND t.transaction_date >= :month_start
             AND t.transaction_date < :next_month
-         GROUP BY c.id, c.name
+         GROUP BY t.category
          ORDER BY total DESC
          LIMIT 4'
     );
     $categoryStatement->execute([
-        'category_user_id' => $userId,
         'user_id' => $userId,
         'account_user_id' => $userId,
         'currency' => $currency,
@@ -185,12 +179,9 @@ if ($hasAccounts) {
     $expensesByCategory = $categoryStatement->fetchAll();
 
     $budgetStatement = $pdo->prepare(
-        'SELECT b.id, b.name, b.amount, b.start_date, b.end_date, b.is_recurring, b.category_id,
-                COALESCE(c.name, \'All categories\') AS category_name
+        'SELECT b.id, b.name, b.amount, b.start_date, b.end_date, b.is_recurring, b.category,
+                COALESCE(b.category, \'All categories\') AS category_name
          FROM expense_limits b
-         LEFT JOIN categories c
-            ON c.id = b.category_id
-            AND (c.user_id = b.user_id OR c.user_id IS NULL)
          WHERE b.user_id = :user_id
             AND b.currency_code = :currency
             AND b.period = \'monthly\'
@@ -201,17 +192,17 @@ if ($hasAccounts) {
         'currency' => $currency,
     ]);
     $budgetSpentStatement = $pdo->prepare(
-        'SELECT COALESCE(SUM(t.amount), 0)
+        'SELECT COALESCE(SUM(-t.amount), 0)
          FROM transactions t
          INNER JOIN wallets a ON a.id = t.wallet_id
          WHERE t.user_id = :user_id
             AND a.user_id = :account_user_id
             AND a.currency_code = :currency
             AND a.is_archived = 0
-            AND t.transaction_type = \'expense\'
+            AND t.amount < 0
             AND t.transaction_date >= :range_start
             AND t.transaction_date < :range_end
-            AND (:include_all_categories = 1 OR t.category = :category_id)'
+            AND (:include_all_categories = 1 OR t.category = :category)'
     );
     $budgets = [];
     foreach ($budgetStatement->fetchAll() as $budget) {
@@ -232,8 +223,8 @@ if ($hasAccounts) {
             'currency' => $currency,
             'range_start' => $range['start']->format('Y-m-d'),
             'range_end' => $range['end']->format('Y-m-d'),
-            'include_all_categories' => $budget['category_id'] === null ? 1 : 0,
-            'category_id' => $budget['category_id'],
+            'include_all_categories' => $budget['category'] === null ? 1 : 0,
+            'category' => $budget['category'],
         ]);
         $budget['spent'] = (float) $budgetSpentStatement->fetchColumn();
         $budgets[] = $budget;
@@ -258,16 +249,13 @@ if ($hasAccounts) {
     $goals = $goalStatement->fetchAll();
 
     $recentStatement = $pdo->prepare(
-        'SELECT t.id, t.transaction_type, t.amount, t.description, t.transaction_date,
+        'SELECT t.id, t.amount, t.description, t.transaction_date,
                 source.name AS account_name,
-                COALESCE(c.name, \'Uncategorized\') AS category_name
+                COALESCE(t.category, \'Uncategorized\') AS category_name
          FROM transactions t
          INNER JOIN wallets source
             ON source.id = t.wallet_id
             AND source.user_id = t.user_id
-         LEFT JOIN categories c
-            ON c.id = t.category
-            AND (c.user_id = t.user_id OR c.user_id IS NULL)
          WHERE t.user_id = :user_id
             AND source.currency_code = :currency
             AND source.is_archived = 0
@@ -630,7 +618,7 @@ $flash = wallet_take_flash();
                         <div class="divide-y divide-slate-100">
                             <?php foreach ($recentTransactions as $transaction): ?>
                                 <?php
-                                $isIncome = $transaction['transaction_type'] === 'income';
+                                $isIncome = (float) $transaction['amount'] > 0;
                                 $amountPrefix = $isIncome ? '+' : '−';
                                 $amountClass = $isIncome ? 'text-emerald-700' : 'text-slate-900';
                                 $detail = $transaction['category_name'];
@@ -654,7 +642,7 @@ $flash = wallet_take_flash();
                                         </div>
                                     </div>
                                     <div class="shrink-0 text-right">
-                                        <p class="text-sm font-semibold <?= $amountClass ?>"><?= $amountPrefix ?><?= wallet_escape($formatMoney((float) $transaction['amount'])) ?></p>
+                                        <p class="text-sm font-semibold <?= $amountClass ?>"><?= $amountPrefix ?><?= wallet_escape($formatMoney(abs((float) $transaction['amount']))) ?></p>
                                         <p class="mt-0.5 text-xs text-slate-500"><?= wallet_escape(date('M j, Y', strtotime((string) $transaction['transaction_date']))) ?></p>
                                     </div>
                                 </div>
