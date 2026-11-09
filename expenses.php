@@ -190,9 +190,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $currency = strtoupper(wallet_post_string('currency_code'));
         $period = wallet_post_string('period');
         $startDate = wallet_post_string('start_date');
-        $endDate = wallet_post_string('end_date');
+        $requestedEndDate = wallet_post_string('end_date');
         $recurringValue = $_POST['is_recurring'] ?? null;
         $isRecurring = $recurringValue === '1';
+        $existingLimit = null;
+        if ($action === 'update' && $budgetId !== false) {
+            $existingLimitStatement = $pdo->prepare(
+                'SELECT is_recurring, end_date
+                 FROM expense_limits
+                 WHERE id = :id AND user_id = :user_id'
+            );
+            $existingLimitStatement->execute(['id' => $budgetId, 'user_id' => $walletUserId]);
+            $existingLimit = $existingLimitStatement->fetch() ?: null;
+        }
+        $endDate = $isRecurring
+            ? (
+                $existingLimit !== null
+                && (bool) $existingLimit['is_recurring']
+                && $existingLimit['end_date'] !== null
+                    ? (string) $existingLimit['end_date']
+                    : ''
+            )
+            : $requestedEndDate;
         $categoryValue = wallet_post_string('category_id');
         $isDefaultCategory = substr($categoryValue, 0, 8) === 'default:';
         $defaultCategory = $isDefaultCategory ? substr($categoryValue, 8) : '';
@@ -207,14 +226,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             || !in_array($period, $periods, true)
             || !wallet_valid_date($startDate)
             || ($endDate !== '' && (!wallet_valid_date($endDate) || $endDate < $startDate))
+            || (!$isRecurring && $endDate !== '' && wallet_valid_date($startDate)
+                && wallet_valid_date($endDate)
+                && new DateTimeImmutable($endDate)
+                    < wallet_expense_limit_minimum_end_date(
+                        $period,
+                        new DateTimeImmutable($startDate)
+                    ))
             || ($recurringValue !== null && $recurringValue !== '1')
             || ($isDefaultCategory && !in_array($defaultCategory, $defaultCategories, true))
             || ($categoryValue !== '' && !$isDefaultCategory
                 && ($categoryId === false || !wallet_owned_expense_category($pdo, $walletUserId, (int) $categoryId)))
-            || ($action === 'update' && $budgetId === false);
+            || ($action === 'update' && ($budgetId === false || $existingLimit === null));
 
         if ($invalid) {
-            wallet_set_flash('error', 'Check the budget details and try again. Category must be an expense category you can use.');
+            wallet_set_flash('error', 'Check the limit details. An end date must include at least one full selected period after the start date.');
         } else {
             if ($isDefaultCategory) {
                 $categoryId = wallet_get_or_create_category($pdo, $walletUserId, 'expense', $defaultCategory);
@@ -266,6 +292,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 wallet_set_flash('success', 'Budget updated.');
             }
+        }
+    } elseif (in_array($action, ['stop_recurring', 'resume_recurring'], true) && $budgetId !== false) {
+        $endDate = $action === 'stop_recurring' ? $today->format('Y-m-d') : null;
+        $statement = $pdo->prepare(
+            'UPDATE expense_limits
+             SET end_date = :end_date
+             WHERE id = :id AND user_id = :user_id AND is_recurring = 1'
+        );
+        $statement->execute([
+            'end_date' => $endDate,
+            'id' => $budgetId,
+            'user_id' => $walletUserId,
+        ]);
+        if ($statement->rowCount() > 0) {
+            wallet_set_flash('success', $action === 'stop_recurring' ? 'Recurring expense limit stopped.' : 'Recurring expense limit resumed.');
+        } else {
+            wallet_set_flash('error', 'That recurring expense limit could not be updated.');
         }
     } elseif ($action === 'delete' && $budgetId !== false) {
         $statement = $pdo->prepare('DELETE FROM expense_limits WHERE id = :id AND user_id = :user_id');
@@ -508,12 +551,27 @@ require __DIR__ . '/includes/app_shell_start.php';
                             <p class="mt-1 text-xs text-slate-400">
                                 <?= (bool) $budget['is_recurring'] ? 'Repeats ' : 'One-time ' ?><?= wallet_escape((string) $budget['period']) ?>
                                 · Starts <?= wallet_escape((string) $budget['start_date']) ?>
-                                <?= $budget['end_date'] !== null ? ' · Ends ' . wallet_escape((string) $budget['end_date']) : '' ?>
+                                <?= $budget['end_date'] !== null
+                                    ? ((bool) $budget['is_recurring'] ? ' · Stopped ' : ' · Ends ') . wallet_escape((string) $budget['end_date'])
+                                    : '' ?>
                                 <?= !$budget['range_active'] ? ' · Not currently active' : '' ?>
                             </p>
                         </div>
                         <div class="flex items-center gap-2">
                             <a href="expenses.php?edit=<?= (int) $budget['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
+                            <?php if ((bool) $budget['is_recurring']): ?>
+                                <form method="post" action="expenses.php"
+                                    <?= $budget['end_date'] === null
+                                        ? 'data-confirm-title="Stop this recurring expense limit?" data-confirm-description="It will stop recurring after today. You can resume it later." data-confirm-label="Stop recurring" data-confirm-variant="danger"'
+                                        : 'data-confirm-title="Resume this recurring expense limit?" data-confirm-description="It will start recurring again from its original schedule." data-confirm-label="Resume recurring"' ?>>
+                                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                    <input type="hidden" name="action" value="<?= $budget['end_date'] === null ? 'stop_recurring' : 'resume_recurring' ?>">
+                                    <input type="hidden" name="budget_id" value="<?= (int) $budget['id'] ?>">
+                                    <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium <?= $budget['end_date'] === null ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50' ?>">
+                                        <?= $budget['end_date'] === null ? 'Stop recurring' : 'Resume' ?>
+                                    </button>
+                                </form>
+                            <?php endif; ?>
                             <form method="post" action="expenses.php" data-confirm-title="Delete this expense limit?" data-confirm-description="This limit will be permanently removed." data-confirm-label="Delete limit" data-confirm-variant="danger">
                                 <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
                                 <input type="hidden" name="action" value="delete">
@@ -699,13 +757,17 @@ require __DIR__ . '/includes/app_shell_start.php';
                     </div>
                     <div>
                         <label for="end_date" class="mb-1.5 block text-sm font-medium text-slate-700">End date <span class="font-normal text-slate-400">optional</span></label>
-                        <input id="end_date" name="end_date" type="date" value="<?= wallet_escape((string) ($editBudget['end_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
+                        <input id="end_date" name="end_date" type="date" data-expense-limit-end-date value="<?= wallet_escape((string) ($editBudget['end_date'] ?? '')) ?>" <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'disabled' : '' ?> class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
+                        <?php if (($editBudget['is_recurring'] ?? false) && $editBudget['end_date'] !== null): ?>
+                            <input type="hidden" name="end_date" value="<?= wallet_escape((string) $editBudget['end_date']) ?>" data-expense-limit-stopped-end>
+                        <?php endif; ?>
+                        <p class="mt-1.5 text-xs text-slate-400">A one-time limit must run for at least one full selected period. Recurring limits run until stopped.</p>
                     </div>
                     <label class="flex items-start gap-3 rounded-xl border border-slate-200 p-3.5">
-                        <input type="checkbox" name="is_recurring" value="1" <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'checked' : '' ?> class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600">
+                        <input type="checkbox" name="is_recurring" value="1" data-expense-limit-recurring <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'checked' : '' ?> class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600">
                         <span>
                             <span class="block text-sm font-medium text-slate-700">Recurring expense limit</span>
-                            <span class="mt-0.5 block text-xs text-slate-500">Repeat this limit every selected period from the start date, until the end date if set.</span>
+                            <span class="mt-0.5 block text-xs text-slate-500">Repeat every selected period from the start date until you stop it.</span>
                         </span>
                     </label>
                     <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">

@@ -8,7 +8,7 @@
         url.origin === window.location.origin && url.pathname.toLowerCase().endsWith('.php');
 
     const showToast = (type, message) => {
-        window.walletAlert(type, message);
+        window.sileoAlert(type, message);
     };
 
     const showError = (message) => {
@@ -228,8 +228,42 @@
         });
     };
 
+    const initializeExpenseLimitRecurrenceControls = (root = document) => {
+        root.querySelectorAll('input[data-expense-limit-recurring]').forEach((checkbox) => {
+            if (!(checkbox instanceof HTMLInputElement) || checkbox.hasAttribute('data-recurrence-initialized')) {
+                return;
+            }
+
+            const form = checkbox.form;
+            const endDate = form?.querySelector('[data-expense-limit-end-date]');
+            const stoppedEndDate = form?.querySelector('[data-expense-limit-stopped-end]');
+            if (!(endDate instanceof HTMLInputElement)) {
+                return;
+            }
+
+            const syncControls = () => {
+                endDate.disabled = checkbox.checked;
+                if (stoppedEndDate instanceof HTMLInputElement) {
+                    stoppedEndDate.disabled = !checkbox.checked;
+                }
+            };
+
+            checkbox.addEventListener('change', () => {
+                if (!checkbox.checked) {
+                    endDate.value = '';
+                } else if (!(stoppedEndDate instanceof HTMLInputElement)) {
+                    endDate.value = '';
+                }
+                syncControls();
+            });
+            checkbox.setAttribute('data-recurrence-initialized', '');
+            syncControls();
+        });
+    };
+
     initializeCustomCategoryFields();
     initializeExpenseDialogs();
+    initializeExpenseLimitRecurrenceControls();
     window.addEventListener('resize', () => initializeExpenseDialogs());
 
     const navigate = async (url, { method = 'GET', body, historyMode = 'push' } = {}) => {
@@ -282,6 +316,7 @@
             initializeFlashMessages(document);
             initializeCustomCategoryFields(document);
             initializeExpenseDialogs(document);
+            initializeExpenseLimitRecurrenceControls(document);
 
             const nextUrl = new URL(response.url);
             if (historyMode === 'push') {

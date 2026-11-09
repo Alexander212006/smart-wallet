@@ -59,6 +59,54 @@ function wallet_valid_date(string $date): bool
 }
 
 /**
+ * @throws InvalidArgumentException
+ */
+function wallet_expense_limit_period_start_date(
+    string $period,
+    DateTimeImmutable $startDate,
+    int $offset
+): DateTimeImmutable {
+    if ($period === 'weekly') {
+        return $startDate->modify('+' . ($offset * 7) . ' days');
+    }
+
+    if ($period === 'monthly') {
+        $monthStart = $startDate->modify('first day of this month')->modify('+' . $offset . ' months');
+        $day = min((int) $startDate->format('j'), (int) $monthStart->format('t'));
+
+        return $monthStart->setDate(
+            (int) $monthStart->format('Y'),
+            (int) $monthStart->format('n'),
+            $day
+        );
+    }
+
+    if ($period === 'yearly') {
+        $yearStart = $startDate->setDate(
+            (int) $startDate->format('Y') + $offset,
+            (int) $startDate->format('n'),
+            1
+        );
+        $day = min((int) $startDate->format('j'), (int) $yearStart->format('t'));
+
+        return $yearStart->setDate(
+            (int) $yearStart->format('Y'),
+            (int) $yearStart->format('n'),
+            $day
+        );
+    }
+
+    throw new InvalidArgumentException('Unsupported expense limit period.');
+}
+
+function wallet_expense_limit_minimum_end_date(
+    string $period,
+    DateTimeImmutable $startDate
+): DateTimeImmutable {
+    return wallet_expense_limit_period_start_date($period, $startDate, 1)->modify('-1 day');
+}
+
+/**
  * @return array{start: DateTimeImmutable, end: DateTimeImmutable}|null
  */
 function wallet_expense_limit_date_range(
@@ -68,39 +116,8 @@ function wallet_expense_limit_date_range(
     bool $isRecurring,
     ?DateTimeImmutable $endDate = null
 ): ?array {
-    $periodStartAt = static function (int $offset) use ($period, $startDate): DateTimeImmutable {
-        if ($period === 'weekly') {
-            return $startDate->modify('+' . ($offset * 7) . ' days');
-        }
-
-        if ($period === 'monthly') {
-            $monthStart = $startDate->modify('first day of this month')->modify('+' . $offset . ' months');
-            $day = min((int) $startDate->format('j'), (int) $monthStart->format('t'));
-
-            return $monthStart->setDate(
-                (int) $monthStart->format('Y'),
-                (int) $monthStart->format('n'),
-                $day
-            );
-        }
-
-        if ($period === 'yearly') {
-            $yearStart = $startDate->setDate(
-                (int) $startDate->format('Y') + $offset,
-                (int) $startDate->format('n'),
-                1
-            );
-            $day = min((int) $startDate->format('j'), (int) $yearStart->format('t'));
-
-            return $yearStart->setDate(
-                (int) $yearStart->format('Y'),
-                (int) $yearStart->format('n'),
-                $day
-            );
-        }
-
-        throw new InvalidArgumentException('Unsupported expense limit period.');
-    };
+    $periodStartAt = static fn (int $offset): DateTimeImmutable =>
+        wallet_expense_limit_period_start_date($period, $startDate, $offset);
 
     if ($today < $startDate || ($endDate !== null && $today > $endDate)) {
         return null;

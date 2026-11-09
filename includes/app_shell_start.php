@@ -15,6 +15,7 @@ $flash = wallet_take_flash();
     <meta name="theme-color" content="#f6f8f6">
     <title><?= wallet_escape($appTitle) ?> | Smart Wallet</title>
     <link rel="stylesheet" href="assets/js/sileo-toast.css?v=<?= filemtime(__DIR__ . '/../assets/js/sileo-toast.css') ?>">
+    <link rel="stylesheet" href="assets/css/toast-overrides.css?v=<?= filemtime(__DIR__ . '/../assets/css/toast-overrides.css') ?>">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body data-app-shell="true" class="min-h-screen bg-[#f6f8f6] font-sans text-slate-900 antialiased">
