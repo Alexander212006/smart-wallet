@@ -60,7 +60,11 @@ function workflow_request(CurlHandle $client, string $path, ?array $fields = nul
         throw new RuntimeException('Local HTTP request failed; check that the PHP server is running.');
     }
 
-    return ['status' => (int) curl_getinfo($client, CURLINFO_RESPONSE_CODE), 'body' => $body];
+    return [
+        'status' => (int) curl_getinfo($client, CURLINFO_RESPONSE_CODE),
+        'content_type' => (string) (curl_getinfo($client, CURLINFO_CONTENT_TYPE) ?: ''),
+        'body' => $body,
+    ];
 }
 
 function workflow_xpath(string $html): DOMXPath
@@ -174,6 +178,10 @@ try {
     $previousMonth = $today->modify('first day of this month')->modify('-1 month');
     $anonymous = workflow_client();
     workflow_assert(workflow_request($anonymous, 'spending.php')['status'] === 302, 'Analysis requires authentication.');
+    workflow_assert(
+        workflow_request($anonymous, 'reports.php?period=monthly&month=' . $month . '&currency=PHP&export=pdf')['status'] === 302,
+        'Financial report exports require authentication.'
+    );
     $client = workflow_client();
     workflow_login($client, $emails['main'], $password);
     $form = workflow_request($client, 'expenses.php');
@@ -347,7 +355,9 @@ try {
     workflow_assert($limit !== false && $limit['category'] === $categoryName, 'Limits store category names directly.');
     $limitDashboard = workflow_request($client, 'index.php?currency=PHP');
     $limitCard = workflow_text($limitDashboard['body'], '//article[@id="expenses"]');
-    workflow_assert(str_contains($limitCard, $categoryName) && str_contains($limitCard, 'PHP 25.00 / PHP 100.00'),
+    workflow_assert(str_contains($limitCard, $categoryName)
+        && str_contains($limitCard, 'PHP 25.00 spent / PHP 100.00 limit')
+        && str_contains($limitCard, 'PHP 75.00 remaining'),
         'Category-scoped limit sums negative expenses as positive spending.');
     workflow_assert(workflow_overspending_count($limitDashboard['body']) === 0, 'Spending below a limit does not alert.');
 
@@ -444,6 +454,35 @@ try {
     $multiPage = workflow_request($client, 'index.php?currency=PHP');
     workflow_assert($multiPage['status'] === 200 && workflow_overspending_count($multiPage['body']) === 3,
         'Weekly, yearly and other-currency limits alert; inactive, foreign and prior-period limits do not.');
+    $overviewLimitNodes = workflow_xpath($multiPage['body'])->query('//article[@id="expenses"]//*[@data-overview-expense-limit]');
+    workflow_assert($overviewLimitNodes !== false && $overviewLimitNodes->length === 4,
+        'Overview displays all active limits for its selected currency without a monthly-only filter or card cap.');
+    $overviewLimitText = workflow_text($multiPage['body'], '//article[@id="expenses"]');
+    workflow_assert(str_contains($overviewLimitText, 'Weekly warning')
+        && str_contains($overviewLimitText, 'Yearly warning')
+        && str_contains($overviewLimitText, 'Prior-period spending')
+        && !str_contains($overviewLimitText, 'Expired limit')
+        && !str_contains($overviewLimitText, 'Stopped limit')
+        && !str_contains($overviewLimitText, 'Future limit')
+        && !str_contains($overviewLimitText, 'USD warning'),
+        'Overview includes active weekly/yearly/recurring limits and excludes inactive or other-currency limits.');
+    $overviewWeekly = workflow_text(
+        $multiPage['body'],
+        '//article[@id="expenses"]//*[@data-overview-expense-limit][.//p[normalize-space(.)="Weekly warning"]]'
+    );
+    $expensesWithLimits = workflow_request($client, 'expenses.php');
+    $expensesWeekly = workflow_text(
+        $expensesWithLimits['body'],
+        '//section[@id="expense-limits"]/article[.//h2[normalize-space(.)="Weekly warning"]]'
+    );
+    foreach ([$overviewWeekly, $expensesWeekly] as $weeklyText) {
+        workflow_assert(str_contains($weeklyText, $categoryName)
+            && str_contains($weeklyText, 'Weekly')
+            && str_contains($weeklyText, 'PHP 25.00 spent')
+            && str_contains($weeklyText, 'PHP 5.00')
+            && str_contains($weeklyText, 'PHP 20.00 over limit'),
+            'Overview and Expenses use the same category, period, spent, limit and overspending values.');
+    }
     $multiText = workflow_text($multiPage['body'], '//section[@aria-labelledby="overspending-alert-title"]');
     workflow_assert(str_contains($multiText, 'Weekly warning') && str_contains($multiText, 'Yearly warning')
         && str_contains($multiText, 'PHP 20.00 over limit') && str_contains($multiText, 'USD 495.00 over limit'),
@@ -452,6 +491,10 @@ try {
     $switchedCurrency = workflow_request($client, 'index.php?currency=USD');
     workflow_assert(workflow_overspending_count($switchedCurrency['body']) === 3 && workflow_overspending_toasts($switchedCurrency['body']) === 0,
         'Switching dashboard currency does not reset or duplicate alerts.');
+    $usdOverviewLimits = workflow_xpath($switchedCurrency['body'])->query('//article[@id="expenses"]//*[@data-overview-expense-limit]');
+    workflow_assert($usdOverviewLimits !== false && $usdOverviewLimits->length === 1
+        && str_contains((string) $usdOverviewLimits->item(0)->textContent, 'USD warning'),
+        'Overview limits remain scoped to the selected wallet currency.');
     $pdo->prepare('DELETE FROM expense_limits WHERE id IN (' . implode(',', array_fill(0, count($extraLimitIds), '?')) . ')')->execute($extraLimitIds);
     $pdo->prepare('DELETE FROM transactions WHERE id IN (' . implode(',', array_fill(0, count($ignoredIds), '?')) . ')')->execute($ignoredIds);
 
@@ -510,6 +553,42 @@ try {
         && str_contains($summary, 'PHP 40.00'), 'Dashboard summary uses the scoped category and peak-day amount.');
     workflow_assert(str_contains($summary, '13% / 25%') && str_contains($summary, '63% unclassified'),
         'Dashboard shows rounded essential, non-essential and unclassified shares.');
+
+    $reportPage = workflow_request($client, 'reports.php?period=monthly&month=' . $month . '&currency=PHP');
+    workflow_assert($reportPage['status'] === 200, 'Financial Reports page renders with validated filters.');
+    workflow_assert(workflow_text($reportPage['body'], '//h1') === 'Financial Reports', 'Financial Reports heading renders.');
+    $reportSummary = workflow_text($reportPage['body'], '//section[@aria-label="Financial summary"]');
+    workflow_assert(
+        str_contains($reportSummary, 'PHP 444.00') && str_contains($reportSummary, 'PHP 40.00')
+            && !str_contains($reportSummary, 'PHP 900.00'),
+        'Financial report summary scopes active owned wallets and excludes future transactions.'
+    );
+    workflow_assert(
+        !str_contains($reportPage['body'], $foreignCategoryName) && str_contains($reportPage['body'], 'Previous-period comparison'),
+        'Financial report isolates user data and renders its comparison section.'
+    );
+
+    $csvExport = workflow_request(
+        $client,
+        'reports.php?period=monthly&month=' . $month . '&currency=PHP&export=csv'
+    );
+    workflow_assert(
+        $csvExport['status'] === 200 && str_starts_with($csvExport['content_type'], 'text/csv')
+            && str_starts_with($csvExport['body'], "\xEF\xBB\xBF")
+            && str_contains($csvExport['body'], 'Financial summary')
+            && str_contains($csvExport['body'], '444.00'),
+        'Authenticated CSV export returns matching UTF-8 report data.'
+    );
+    $pdfExport = workflow_request(
+        $client,
+        'reports.php?period=monthly&month=' . $month . '&currency=PHP&export=pdf'
+    );
+    workflow_assert(
+        $pdfExport['status'] === 200 && str_starts_with($pdfExport['content_type'], 'application/pdf')
+            && str_starts_with($pdfExport['body'], '%PDF-1.4')
+            && str_ends_with($pdfExport['body'], "%%EOF\n"),
+        'Authenticated PDF export returns a complete PDF document.'
+    );
 
     $usd = workflow_request($client, 'spending.php?currency=USD&month=' . $month);
     workflow_assert($usd['status'] === 200, 'Currency filter renders.');

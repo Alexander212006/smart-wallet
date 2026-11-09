@@ -1,17 +1,19 @@
--- Smart Wallet stored procedures for MariaDB 10.4+. Select smart_wallet before importing.
+-- Smart Wallet stored procedures for MySQL 8.0. Select smart_wallet before importing.
 -- Mutating procedures own their transactions. Triggers maintain wallet balances.
+-- Their guards require Performance Schema current-transaction instrumentation.
 SET @wallet_previous_sql_mode=@@SESSION.sql_mode;
 SET SESSION sql_mode=IF(FIND_IN_SET('STRICT_TRANS_TABLES',@@SESSION.sql_mode) OR FIND_IN_SET('STRICT_ALL_TABLES',@@SESSION.sql_mode),@@SESSION.sql_mode,CONCAT_WS(',',@@SESSION.sql_mode,'STRICT_TRANS_TABLES'));
 DELIMITER $$
 
-CREATE OR REPLACE PROCEDURE sp_create_wallet(IN p_user_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_wallet_type VARCHAR(20),IN p_balance DECIMAL(14,2),IN p_currency CHAR(3))
+DROP PROCEDURE IF EXISTS sp_create_wallet$$
+CREATE PROCEDURE sp_create_wallet(IN p_user_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_wallet_type VARCHAR(20),IN p_balance DECIMAL(14,2),IN p_currency CHAR(3))
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -27,14 +29,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_update_wallet(IN p_user_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_wallet_type VARCHAR(20))
+DROP PROCEDURE IF EXISTS sp_update_wallet$$
+CREATE PROCEDURE sp_update_wallet(IN p_user_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_wallet_type VARCHAR(20))
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -48,14 +51,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_set_wallet_archived(IN p_user_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,IN p_archived TINYINT)
+DROP PROCEDURE IF EXISTS sp_set_wallet_archived$$
+CREATE PROCEDURE sp_set_wallet_archived(IN p_user_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,IN p_archived TINYINT)
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -68,7 +72,8 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_save_transaction(IN p_user_id BIGINT UNSIGNED,IN p_transaction_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,
+DROP PROCEDURE IF EXISTS sp_save_transaction$$
+CREATE PROCEDURE sp_save_transaction(IN p_user_id BIGINT UNSIGNED,IN p_transaction_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,
 IN p_category VARCHAR(80),IN p_amount DECIMAL(14,2),IN p_description VARCHAR(255),IN p_date DATETIME,IN p_expense_nature VARCHAR(20))
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
@@ -78,7 +83,7 @@ BEGIN
     DECLARE v_wallet BIGINT UNSIGNED DEFAULT NULL;
     DECLARE v_old_amount DECIMAL(14,2);
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -107,14 +112,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_delete_transaction(IN p_user_id BIGINT UNSIGNED,IN p_transaction_id BIGINT UNSIGNED,IN p_expected_type VARCHAR(7))
+DROP PROCEDURE IF EXISTS sp_delete_transaction$$
+CREATE PROCEDURE sp_delete_transaction(IN p_user_id BIGINT UNSIGNED,IN p_transaction_id BIGINT UNSIGNED,IN p_expected_type VARCHAR(7))
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -127,7 +133,8 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_save_savings_goal(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_description TEXT,
+DROP PROCEDURE IF EXISTS sp_save_savings_goal$$
+CREATE PROCEDURE sp_save_savings_goal(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_description TEXT,
 IN p_target DECIMAL(14,2),IN p_currency CHAR(3),IN p_target_date DATE)
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
@@ -137,7 +144,7 @@ BEGIN
     DECLARE v_currency CHAR(3);
     DECLARE v_contribution_count BIGINT UNSIGNED DEFAULT 0;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -162,14 +169,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_set_savings_goal_status(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,IN p_status VARCHAR(12))
+DROP PROCEDURE IF EXISTS sp_set_savings_goal_status$$
+CREATE PROCEDURE sp_set_savings_goal_status(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,IN p_status VARCHAR(12))
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -182,14 +190,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_delete_savings_goal(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED)
+DROP PROCEDURE IF EXISTS sp_delete_savings_goal$$
+CREATE PROCEDURE sp_delete_savings_goal(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED)
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -201,7 +210,8 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_contribute_savings(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,
+DROP PROCEDURE IF EXISTS sp_contribute_savings$$
+CREATE PROCEDURE sp_contribute_savings(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,
 IN p_amount DECIMAL(14,2),IN p_date DATETIME,IN p_note VARCHAR(255))
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
@@ -212,7 +222,7 @@ BEGIN
     DECLARE v_currency CHAR(3);
     DECLARE v_contribution BIGINT UNSIGNED;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -231,7 +241,8 @@ BEGIN
     SELECT v_contribution AS id,status FROM savings_goals WHERE id=v_id AND user_id=p_user_id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_save_expense_limit(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_category VARCHAR(80),
+DROP PROCEDURE IF EXISTS sp_save_expense_limit$$
+CREATE PROCEDURE sp_save_expense_limit(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_category VARCHAR(80),
 IN p_amount DECIMAL(14,2),IN p_currency CHAR(3),IN p_period VARCHAR(8),IN p_start DATE,IN p_end DATE,IN p_recurring TINYINT)
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
@@ -240,7 +251,7 @@ BEGIN
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE v_min_end DATE;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -268,14 +279,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_set_expense_limit_recurring(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED,IN p_resume TINYINT,IN p_today DATE)
+DROP PROCEDURE IF EXISTS sp_set_expense_limit_recurring$$
+CREATE PROCEDURE sp_set_expense_limit_recurring(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED,IN p_resume TINYINT,IN p_today DATE)
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -288,14 +300,15 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_delete_expense_limit(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED)
+DROP PROCEDURE IF EXISTS sp_delete_expense_limit$$
+CREATE PROCEDURE sp_delete_expense_limit(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED)
 SQL SECURITY INVOKER
 MODIFIES SQL DATA
 BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@in_transaction<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -307,7 +320,8 @@ BEGIN
     SELECT v_id AS id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_get_expense_limits(IN p_user_id BIGINT UNSIGNED,IN p_today DATE)
+DROP PROCEDURE IF EXISTS sp_get_expense_limits$$
+CREATE PROCEDURE sp_get_expense_limits(IN p_user_id BIGINT UNSIGNED,IN p_today DATE)
 SQL SECURITY INVOKER
 READS SQL DATA
 BEGIN
@@ -350,7 +364,8 @@ BEGIN
     FROM active_limits ORDER BY start_date DESC,name,id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_get_spending_rows(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_start DATE,IN p_end DATE)
+DROP PROCEDURE IF EXISTS sp_get_spending_rows$$
+CREATE PROCEDURE sp_get_spending_rows(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_start DATE,IN p_end DATE)
 SQL SECURITY INVOKER
 READS SQL DATA
 BEGIN
@@ -360,7 +375,8 @@ BEGIN
         AND transaction_date>=p_start AND transaction_date<p_end ORDER BY transaction_date,id;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_get_monthly_summary(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_month DATE)
+DROP PROCEDURE IF EXISTS sp_get_monthly_summary$$
+CREATE PROCEDURE sp_get_monthly_summary(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_month DATE)
 SQL SECURITY INVOKER
 READS SQL DATA
 BEGIN
@@ -372,7 +388,8 @@ BEGIN
             AND month_start=CAST(DATE_FORMAT(p_month,'%Y-%m-01') AS DATE)),0) AS expenses;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_get_cash_flow(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_start DATE,IN p_end DATE)
+DROP PROCEDURE IF EXISTS sp_get_cash_flow$$
+CREATE PROCEDURE sp_get_cash_flow(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_start DATE,IN p_end DATE)
 SQL SECURITY INVOKER
 READS SQL DATA
 BEGIN
@@ -383,7 +400,8 @@ BEGIN
         AND transaction_date>=p_start AND transaction_date<p_end GROUP BY DATE(transaction_date) ORDER BY activity_date;
 END$$
 
-CREATE OR REPLACE PROCEDURE sp_get_category_spending(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_month DATE)
+DROP PROCEDURE IF EXISTS sp_get_category_spending$$
+CREATE PROCEDURE sp_get_category_spending(IN p_user_id BIGINT UNSIGNED,IN p_currency CHAR(3),IN p_month DATE)
 SQL SECURITY INVOKER
 READS SQL DATA
 BEGIN

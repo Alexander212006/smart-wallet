@@ -6,15 +6,16 @@ A vanilla PHP and MySQL personal finance app. Serve this directory with XAMPP an
 
 The app uses 17 stored procedures, five views, and seven triggers. Procedures handle finance operations and reports; transaction triggers maintain wallet balances, and a savings trigger completes reached goals. PHP handles sessions, CSRF, password hashing, input feedback, and rendering.
 
-After importing the schema or applying the existing table migrations, install the database programs:
+After importing the schema or applying the existing table migrations, run the read-only MySQL compatibility preflight and then install the database programs:
 
 ```text
+php database/install_programs.php --check
 php database/install_programs.php --apply
 ```
 
-Run the installer before using the updated PHP app, with application writes stopped during installation. It can be rerun and does not recalculate existing balances. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction.
+Run the installer before using the updated PHP app, with application writes stopped during installation. It targets MySQL 8.0.16 or newer (including MySQL Community Server 8.0.46), requires the Performance Schema `events_transactions_current` consumer, can be rerun after a partial failure, and does not recalculate existing balances. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction.
 
-See [the case-study guide](database/CASE_STUDY.md) for the rubric mapping, procedure catalog, SQL examples, and installation details. The implementation is tested on XAMPP's MariaDB 10.4.32.
+See [the case-study guide](database/CASE_STUDY.md) for the rubric mapping, procedure catalog, SQL examples, and installation details. The database-program compatibility target is MySQL Community Server 8.0.46.
 
 ## Spending analysis
 
@@ -45,9 +46,51 @@ A toast appears the first time an overspend is detected in your session, when th
 
 Select **Review limits** in the warning panel to open a modal with each exceeded limit's period, category, spending, and excess amount. **Edit limit** opens its edit form. Close the review with **Done**, the close button, Escape, or a click outside the modal.
 
+## Financial Reports
+
+Open **Financial Reports** in the desktop or mobile navigation. Reports support ISO weeks (Monday through Sunday), calendar months, and calendar years. Each report is kept to one active-wallet currency and includes:
+
+- Total income, total expenses, transaction-derived net savings, and savings rate.
+- A reconciling category breakdown with transaction counts and percentages.
+- Applicable weekly, monthly, and yearly budget performance.
+- An elapsed-time-matched comparison with the immediately preceding period.
+- Dependency-free PDF and UTF-8 CSV downloads generated from the same report data as the page.
+
+Income is the sum of positive transactions. Expenses are the absolute sum of negative transactions. Net savings is income minus expenses, and savings rate is `net savings / income * 100`; a zero-income period displays `N/A`. All database amounts are accumulated as integer cents rather than binary floating-point values. Null and blank categories are grouped as **Uncategorized**.
+
+Current incomplete periods include today and exclude later dates. Their previous-period comparison uses the same number of elapsed calendar days, capped at the previous period's end. Completed periods compare against the complete previous period. Percentage change is `(current - previous) / abs(previous) * 100`; a zero previous baseline is `N/A`. Savings-rate differences are percentage points.
+
+Reports follow the existing analytics policy: transactions from archived wallets and future-dated transactions are excluded. Currencies are never combined or converted. Queries are scoped to both the authenticated user and wallets owned by that user.
+
+Budget cycles stay anchored to each limit's `start_date` and respect its period, inclusive `end_date`, and recurrence setting. A report that covers complete cycles receives their complete allocations. Any first, last, stopped, or currently incomplete cycle is prorated by covered calendar days; this is labelled on the page and in exports. Each overlapping budget is evaluated independently, and budget rows are never added together to derive total spending.
+
+PDF export uses the project's built-in A4 writer with PDF base fonts, wrapped tables, repeated headers, and pagination. For dependency-free portability, PDF text outside the Windows-1252 character set is transliterated when possible; the CSV export remains lossless UTF-8. CSV includes metadata, summary, categories, budgets, and comparisons, and user-controlled text is protected against spreadsheet-formula injection. No Composer package, JavaScript chart library, or database migration is required for Financial Reports.
+
+### Run in XAMPP
+
+1. Start Apache and MySQL from the XAMPP control panel.
+2. Configure the PDO connection in `config/database.php`. For a new installation, import `database/schema.sql`; for an existing installation, apply the migrations listed above.
+3. Open `http://localhost/vanilla-php/smart-wallet/`, sign in, and choose **Financial Reports**.
+4. Choose Weekly, Monthly, or Yearly, select a date and one of your active-wallet currencies, then select **Generate Report**.
+5. Use **Export PDF** or **Export CSV** to download the exact displayed report.
+
 ## Checks
 
-Run the calculation tests with PHP CLI:
+PHP is not added to `PATH` by a default XAMPP installation. In PowerShell, use `C:\xampp\php\php.exe` in place of `php` in the commands below when necessary.
+
+Run the Financial Reports calculation, isolation, budget, CSV, and PDF tests (PDO SQLite required):
+
+```text
+php tests/financial_reports_test.php
+```
+
+Check database-program SQL framing and MySQL compatibility without connecting to or changing a database:
+
+```text
+php tests/database_programs_static_test.php
+```
+
+Run the calculation and query-isolation tests with PHP CLI (PDO SQLite required):
 
 ```text
 php tests/spending_analysis_test.php
@@ -66,7 +109,7 @@ Test the migration and fresh schema in a disposable MySQL database (requires per
 php tests/category_migration_test.php --run
 ```
 
-To test the expense save/edit flow and rendered analysis against the configured MySQL database, start a local server in one terminal and run the workflow test in another:
+To test the expense save/edit flow, rendered analytics and reports, authenticated PDF/CSV downloads, and export authorization against the configured MySQL database, start a local server in one terminal and run the workflow test in another:
 
 ```text
 php -S 127.0.0.1:8765 -t .

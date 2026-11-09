@@ -116,11 +116,7 @@ if ($hasAccounts) {
 
     $expensesByCategory = array_slice(wallet_call_procedure($pdo, 'sp_get_category_spending', [$userId, $currency, $monthStart]), 0, 4);
 
-    $budgets = array_values(array_filter($expenseLimits, static fn (array $limit): bool =>
-        $limit['range_active'] && $limit['period'] === 'monthly' && $limit['currency_code'] === $currency
-    ));
-    usort($budgets, static fn (array $left, array $right): int => strcasecmp($left['name'], $right['name']));
-    $budgets = array_slice($budgets, 0, 4);
+    $budgets = wallet_active_expense_limits($expenseLimits, $currency);
 
     $goalStatement = $pdo->prepare(
         'SELECT id,name,target_amount,target_date,currency_code,saved FROM vw_savings_goal_progress
@@ -407,34 +403,29 @@ $flash = wallet_take_flash();
                         <div class="flex items-center justify-between">
                             <div>
                                 <h2 class="font-semibold tracking-tight">Expenses</h2>
-                                <p class="mt-1 text-sm text-slate-500">Your monthly expense limits</p>
+                                <p class="mt-1 text-sm text-slate-500">Your active weekly, monthly, and yearly limits</p>
                             </div>
                             <svg class="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15v-3m4 3V7m4 8v-5m4 5V4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </div>
                         <?php if ($budgets === []): ?>
-                            <p class="mt-6 rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">No active monthly budgets yet.</p>
+                            <p class="mt-6 rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">No active expense limits yet.</p>
                         <?php else: ?>
                             <div class="mt-5 space-y-5">
                                 <?php foreach ($budgets as $budget): ?>
-                                    <?php
-                                    $budgetAmount = (float) $budget['amount'];
-                                    $spent = (float) $budget['spent'];
-                                    $progress = $budgetAmount > 0 ? min(100, (int) round($spent / $budgetAmount * 100)) : 0;
-                                    $overBudget = $budget['over_cents'] > 0;
-                                    ?>
-                                    <div>
-                                        <div class="mb-2 flex items-center justify-between gap-3">
+                                    <div data-overview-expense-limit data-limit-id="<?= (int) $budget['id'] ?>">
+                                        <div class="mb-2 flex flex-col items-start justify-between gap-1.5 sm:flex-row sm:items-center sm:gap-3">
                                             <div class="min-w-0">
                                                 <p class="truncate text-sm font-medium"><?= wallet_escape((string) $budget['name']) ?></p>
-                                                <p class="mt-0.5 text-xs text-slate-500"><?= wallet_escape((string) $budget['category_name']) ?></p>
+                                                <p class="mt-0.5 text-xs text-slate-500"><?= wallet_escape((string) $budget['category_name']) ?> · <?= wallet_escape(ucfirst((string) $budget['period'])) ?></p>
                                             </div>
-                                            <p class="shrink-0 text-right text-xs <?= $overBudget ? 'font-semibold text-rose-600' : 'text-slate-500' ?>">
-                                                <?= wallet_escape($formatMoney($spent)) ?> / <?= wallet_escape($formatMoney($budgetAmount)) ?>
+                                            <p class="shrink-0 text-left text-xs sm:text-right <?= $budget['is_over'] ? 'font-semibold text-rose-600' : 'text-slate-500' ?>">
+                                                <?= wallet_escape(wallet_expense_limit_money($budget, $budget['spent_cents'])) ?> spent / <?= wallet_escape(wallet_expense_limit_money($budget, $budget['limit_cents'])) ?> limit
                                             </p>
                                         </div>
                                         <div class="h-2 overflow-hidden rounded-full bg-slate-100">
-                                            <div class="h-full rounded-full <?= $overBudget ? 'bg-rose-500' : 'bg-emerald-500' ?>" style="width: <?= $progress ?>%"></div>
+                                            <div class="h-full rounded-full <?= $budget['is_over'] ? 'bg-rose-500' : 'bg-emerald-500' ?>" style="width: <?= $budget['progress_percent'] ?>%"></div>
                                         </div>
+                                        <p class="mt-1.5 text-xs <?= $budget['is_over'] ? 'font-medium text-rose-600' : 'text-slate-400' ?>"><?= wallet_escape(wallet_expense_limit_status($budget)) ?></p>
                                     </div>
                                 <?php endforeach; ?>
                             </div>

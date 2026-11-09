@@ -1,1 +1,0 @@
-csrf_token|s:64:"eadadcb28ef59dd9ba514e796189e032a5f264f591d35d39f0324de1a0ac03d8";user|a:3:{s:2:"id";i:29;s:4:"name";s:13:"Workflow main";s:5:"email";s:52:"spending-workflow-60b24d94c0fd2478-main@example.test";}overspending_notifications|a:2:{s:7:"user_id";i:29;s:6:"limits";a:0:{}}flash_message|a:2:{s:4:"type";s:7:"success";s:7:"message";s:16:"Expense deleted.";}

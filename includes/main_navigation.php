@@ -7,6 +7,7 @@ $navigationItems = [
     'accounts' => ['label' => 'Create wallet', 'url' => 'wallet.php', 'icon' => 'accounts'],
     'expenses' => ['label' => 'Expenses', 'url' => 'expenses.php', 'icon' => 'expenses'],
     'spending' => ['label' => 'Spending analysis', 'url' => 'spending.php', 'icon' => 'spending'],
+    'reports' => ['label' => 'Financial Reports', 'url' => 'reports.php', 'icon' => 'reports'],
     'savings' => ['label' => 'Savings', 'url' => 'savings.php', 'icon' => 'goals'],
     'income' => ['label' => 'Income', 'url' => 'income.php', 'icon' => 'income'],
 ];
@@ -47,6 +48,9 @@ $navigationLinkClasses = $navigationLayout === 'mobile'
                 <?php elseif ($item['icon'] === 'spending'): ?>
                     <path d="M4 19h16M6 15v-4m6 4V5m6 10V8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
                     <path d="m4 8 5-4 5 2 6-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                <?php elseif ($item['icon'] === 'reports'): ?>
+                    <path d="M6 3.5h9l3 3V20.5H6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                    <path d="M15 3.5v3h3M9 16v-3m3 3V9m3 7v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
                 <?php elseif ($item['icon'] === 'income'): ?>
                     <path d="M12 5v14m-5-5 5 5 5-5M4 4h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
                 <?php else: ?>
