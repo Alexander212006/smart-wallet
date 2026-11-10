@@ -47,7 +47,7 @@ try {
     $schema=preg_replace('/CREATE DATABASE IF NOT EXISTS smart_wallet\s+CHARACTER SET utf8mb4\s+COLLATE utf8mb4_unicode_ci;/','',$schema);
     foreach (explode(";\n",$schema) as $statement) { if (trim($statement)!=='') { $pdo->query($statement)->closeCursor(); } }
     foreach (['views.sql','triggers.sql','procedures.sql'] as $file) { wallet_execute_sql_file($pdo,__DIR__.'/../database/'.$file); }
-    foreach (['ROUTINES'=>['ROUTINE_SCHEMA',17],'VIEWS'=>['TABLE_SCHEMA',5],'TRIGGERS'=>['TRIGGER_SCHEMA',7]] as $table=>[$column,$expected]) {
+    foreach (['ROUTINES'=>['ROUTINE_SCHEMA',18],'VIEWS'=>['TABLE_SCHEMA',5],'TRIGGERS'=>['TRIGGER_SCHEMA',7]] as $table=>[$column,$expected]) {
         program_assert((int)$pdo->query("SELECT COUNT(*) FROM information_schema.$table WHERE $column=DATABASE()")->fetchColumn()===$expected,'Expected database object count: '.$table);
     }
     $pdo->exec("INSERT INTO users(name,email,password_hash) VALUES('Program test','program-test@example.test','test-only'),('Other user','other-program@example.test','test-only')");
@@ -145,6 +145,30 @@ try {
     program_assert(program_balance($wallet)===$balance,'Savings contributions remain tracking entries without wallet debits.');
     $progress=$pdo->query('SELECT * FROM vw_savings_goal_progress WHERE id='.$goal)->fetch();
     program_assert($progress['saved']==='100.00' && (int)$progress['contribution_count']===2,'Savings view summarizes contributions.');
+    $contributionId=(int)$pdo->query('SELECT id FROM savings_contributions WHERE savings_goal_id='.$goal.' ORDER BY id LIMIT 1')->fetchColumn();
+    $edited=program_call('sp_update_savings_contribution',[$user,$goal,$contributionId,$wallet,'10.00','2024-03-09 12:00:00','Corrected note'])[0];
+    program_assert($edited['status']==='active' && $edited['saved']==='70.00','Reducing a completed contribution reopens the goal and recalculates its total.');
+    $stored=$pdo->query('SELECT * FROM savings_contributions WHERE id='.$contributionId)->fetch();
+    program_assert($stored['note']==='Corrected note' && $stored['contribution_date']==='2024-03-09 12:00:00','Contribution edits persist the note and date.');
+    program_assert(program_balance($wallet)===$balance,'Editing a contribution does not debit or credit its wallet.');
+    foreach ([[$other,$goal,$contributionId,$wallet,'10.00',$date,null],[$user,$goal,$contributionId,$foreign,'10.00',$date,null],
+        [$user,$goal,$contributionId,$usd,'10.00',$date,null],[$user,$goal,$contributionId,$archived,'10.00',$date,null],
+        [$user,$goal,$contributionId,null,'0.00',$date,null],[$user,$goal,$contributionId,null,'-1.00',$date,null],
+        [$user,$goal,0,null,'10.00',$date,null],[$user,$goal,$contributionId,null,'10.00',null,null]] as $invalid) {
+        program_reject(fn()=>program_call('sp_update_savings_contribution',$invalid),'Contribution edits reject invalid ownership, wallets, amounts, dates and IDs.');
+    }
+    $otherGoal=(int)program_call('sp_save_savings_goal',[$user,null,'Other goal',null,'100.00','PHP','2027-01-01'])[0]['id'];
+    program_reject(fn()=>program_call('sp_update_savings_contribution',[$user,$otherGoal,$contributionId,null,'1.00',$date,null]),'Contribution edits cannot move a record to another goal.');
+    program_call('sp_delete_savings_goal',[$user,$otherGoal]);
+    program_call('sp_set_wallet_archived',[$user,$wallet,1]);
+    program_assert(program_call('sp_update_savings_contribution',[$user,$goal,$contributionId,$wallet,'40.00',$date,null])[0]['status']==='completed','The existing archived account can be retained while correcting history.');
+    program_call('sp_set_wallet_archived',[$user,$wallet,0]);
+    foreach (['paused','cancelled'] as $preservedStatus) {
+        program_call('sp_set_savings_goal_status',[$user,$goal,$preservedStatus]);
+        program_assert(program_call('sp_update_savings_contribution',[$user,$goal,$contributionId,null,'40.00',$date,null])[0]['status']===$preservedStatus,'Historical edits preserve a paused or cancelled goal status.');
+    }
+    program_call('sp_set_savings_goal_status',[$user,$goal,'active']);
+    program_assert(program_call('sp_update_savings_contribution',[$user,$goal,$contributionId,$wallet,'40.00',$date,null])[0]['status']==='completed','Increasing a contribution to the target completes an active goal.');
     program_reject(fn()=>program_call('sp_save_savings_goal',[$user,$goal,'Changed',null,'100.00','USD',null]),'Contributed goals cannot change currency.');
     program_reject(fn()=>program_call('sp_delete_savings_goal',[$other,$goal]),'Goal deletion enforces ownership.');
     program_call('sp_delete_savings_goal',[$user,$goal]);

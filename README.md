@@ -6,7 +6,7 @@ The connection also accepts `SMART_WALLET_DB_DSN`, `SMART_WALLET_DB_USER`, and `
 
 ## Database programs and case study
 
-The app uses 17 stored procedures, five views, and seven triggers. Procedures handle finance operations and reports; transaction triggers maintain wallet balances, and a savings trigger completes reached goals. PHP handles sessions, CSRF, password hashing, input feedback, and rendering.
+The app uses 18 stored procedures, five views, and seven triggers. Procedures handle finance operations and reports; transaction triggers maintain wallet balances, and a savings trigger completes reached goals. PHP handles sessions, CSRF, password hashing, input feedback, and rendering.
 
 After importing the schema or applying the existing table migrations, run the compatibility preflight and then install the database programs:
 
@@ -18,6 +18,10 @@ php database/install_programs.php --apply
 Run the installer before using the updated PHP app, with application writes stopped during installation. The same SQL files support MySQL 8.0.16+ and MariaDB 10.4+, can be rerun after a partial failure, and do not recalculate existing balances. MySQL requires enabled Performance Schema transaction instrumentation; MariaDB uses its native transaction status and has no Performance Schema requirement. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction or disabled autocommit.
 
 See [the case-study guide](database/CASE_STUDY.md) for all six rubric requirements, the procedure catalog, SQL examples, and engine-specific installation details.
+
+## Savings contributions
+
+In **Savings**, select **Edit** beside a recent contribution to correct its amount, date, note, or associated account. This works for achieved goals too. Saving recalculates progress and active/completed status; paused and cancelled goals retain their status. Contributions track savings progress without changing wallet balances.
 
 ## Spending analysis
 

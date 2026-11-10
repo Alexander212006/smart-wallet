@@ -31,7 +31,7 @@ $directory = __DIR__ . '/../database';
 $expectedStatements = [
     'views.sql' => 5,
     'triggers.sql' => 17,
-    'procedures.sql' => 37,
+    'procedures.sql' => 39,
 ];
 foreach ($expectedStatements as $file => $expected) {
     database_static_assert(
@@ -56,23 +56,23 @@ database_static_assert($triggerDrops === $triggerCreates, 'Every trigger must be
 
 $procedureDrops = database_static_object_names($procedures, 'DROP', 'PROCEDURE');
 $procedureCreates = database_static_object_names($procedures, 'CREATE', 'PROCEDURE');
-database_static_assert(count($procedureCreates) === 17, 'Seventeen procedures should be defined.');
+database_static_assert(count($procedureCreates) === 18, 'Eighteen procedures should be defined.');
 database_static_assert($procedureDrops === $procedureCreates, 'Every procedure must be dropped immediately before it is recreated.');
 
 database_static_assert(
-    substr_count($procedures, '/*M!100400 OR @@SESSION.in_transaction<>0 */') === 12,
-    'All twelve MariaDB transaction guards must use MariaDB-only executable comments.'
+    substr_count($procedures, '/*M!100400 OR @@SESSION.in_transaction<>0 */') === 13,
+    'All thirteen MariaDB transaction guards must use MariaDB-only executable comments.'
 );
 
 database_static_assert(
-    substr_count($procedures, 'IF @@SESSION.autocommit=0') === 12
-        && substr_count($procedures, '/*!80016 OR EXISTS') === 12,
-    'All twelve MySQL transaction guards must use version comments ignored by MariaDB.'
+    substr_count($procedures, 'IF @@SESSION.autocommit=0') === 13
+        && substr_count($procedures, '/*!80016 OR EXISTS') === 13,
+    'All thirteen MySQL transaction guards must use version comments ignored by MariaDB.'
 );
 
 database_static_assert(
-    substr_count($procedures, 'performance_schema.events_transactions_current') === 12
-        && substr_count($procedures, 'PS_CURRENT_THREAD_ID()') === 12,
+    substr_count($procedures, 'performance_schema.events_transactions_current') === 13
+        && substr_count($procedures, 'PS_CURRENT_THREAD_ID()') === 13,
     'Transaction guards should inspect the current MySQL Performance Schema thread.'
 );
 database_static_assert(

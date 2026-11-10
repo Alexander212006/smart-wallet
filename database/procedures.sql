@@ -269,6 +269,55 @@ BEGIN
     SELECT v_contribution AS id,status FROM savings_goals WHERE id=v_id AND user_id=p_user_id;
 END$$
 
+DROP PROCEDURE IF EXISTS sp_update_savings_contribution$$
+CREATE PROCEDURE sp_update_savings_contribution(IN p_user_id BIGINT UNSIGNED,IN p_goal_id BIGINT UNSIGNED,
+IN p_contribution_id BIGINT UNSIGNED,IN p_wallet_id BIGINT UNSIGNED,IN p_amount DECIMAL(14,2),IN p_date DATETIME,IN p_note VARCHAR(255))
+SQL SECURITY INVOKER
+MODIFIES SQL DATA
+BEGIN
+    DECLARE v_missing BOOLEAN DEFAULT FALSE;
+    DECLARE v_goal BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_wallet BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_old_wallet BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_currency CHAR(3);
+    DECLARE v_status VARCHAR(12);
+    DECLARE v_saved DECIMAL(30,2);
+    DECLARE v_target DECIMAL(14,2);
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    work: BEGIN
+        DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+        START TRANSACTION;
+        IF p_amount IS NULL OR p_amount<=0 OR p_date IS NULL OR p_date<'1000-01-01' THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Enter a valid positive contribution and date.';
+        END IF;
+        SELECT id,currency_code,status,target_amount INTO v_goal,v_currency,v_status,v_target
+        FROM savings_goals WHERE id=p_goal_id AND user_id=p_user_id FOR UPDATE;
+        IF v_missing OR v_goal IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='That savings goal could not be found.'; END IF;
+        SELECT id,wallet_id INTO v_id,v_old_wallet FROM savings_contributions
+        WHERE id=p_contribution_id AND savings_goal_id=v_goal FOR UPDATE;
+        IF v_missing OR v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='That contribution could not be found.'; END IF;
+        IF p_wallet_id IS NOT NULL THEN
+            SELECT id INTO v_wallet FROM wallets WHERE id=p_wallet_id AND user_id=p_user_id
+                AND currency_code=v_currency AND (is_archived=0 OR id=v_old_wallet) FOR UPDATE;
+            IF v_missing OR v_wallet IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Choose a matching, active wallet or keep the existing account.'; END IF;
+        END IF;
+        UPDATE savings_contributions SET wallet_id=p_wallet_id,amount=p_amount,
+            contribution_date=p_date,note=NULLIF(p_note,'') WHERE id=v_id AND savings_goal_id=v_goal;
+        SELECT COALESCE(SUM(amount),0) INTO v_saved FROM savings_contributions WHERE savings_goal_id=v_goal FOR UPDATE;
+        IF v_status IN ('active','completed') THEN
+            SET v_status=IF(v_saved>=v_target,'completed','active');
+            UPDATE savings_goals SET status=v_status WHERE id=v_goal AND user_id=p_user_id;
+        END IF;
+        COMMIT;
+    END;
+    SELECT v_id AS id,v_status AS status,v_saved AS saved;
+END$$
+
 DROP PROCEDURE IF EXISTS sp_save_expense_limit$$
 CREATE PROCEDURE sp_save_expense_limit(IN p_user_id BIGINT UNSIGNED,IN p_limit_id BIGINT UNSIGNED,IN p_name VARCHAR(120),IN p_category VARCHAR(80),
 IN p_amount DECIMAL(14,2),IN p_currency CHAR(3),IN p_period VARCHAR(8),IN p_start DATE,IN p_end DATE,IN p_recurring TINYINT)

@@ -11,7 +11,7 @@ The database programs support **MySQL 8.0.16+ and MariaDB 10.4+**, using InnoDB 
 | Operators and aggregate functions | Procedures use comparisons, arithmetic, `AND`, `OR`, `IN`, `NOT IN`, `BETWEEN`, `CASE`, and date operations. Views use `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, and `COALESCE`. |
 | Joins | `vw_transaction_details` joins transactions to their owned wallets. `vw_savings_goal_progress` uses a left join so goals with no contributions still appear. The demo also joins users, wallets, and transactions. |
 | Views | Five views organize transaction details and summarize wallet balances, monthly cash flow, category spending, and savings progress. |
-| Stored procedures | Seventeen procedures perform the application's finance writes and report queries. |
+| Stored procedures | Eighteen procedures perform the application's finance writes and report queries. |
 | Triggers | Seven triggers validate transaction ownership, automate balance updates, validate savings contributions, and complete reached savings goals. |
 
 ## Installation
@@ -65,6 +65,7 @@ All procedures take the signed-in user's ID as their first parameter. The PHP ap
 | `sp_set_savings_goal_status` | Change a goal's active/paused/completed/cancelled status. |
 | `sp_delete_savings_goal` | Delete a goal and its contribution history through the foreign key cascade. |
 | `sp_contribute_savings` | Add a positive contribution to an active goal with an optional matching wallet. |
+| `sp_update_savings_contribution` | Edit an owned contribution's amount, date, note and optional matching wallet; `savings.php`. Recalculate progress and active/completed status while preserving paused/cancelled goals. |
 | `sp_save_expense_limit` | Create or edit a category-specific or all-category limit; `expenses.php`. |
 | `sp_set_expense_limit_recurring` | Stop or resume a recurring limit on its original schedule. |
 | `sp_delete_expense_limit` | Delete an owned limit. |
@@ -119,6 +120,8 @@ The app always filters views by the session user and, where appropriate, currenc
 
 Savings contributions continue to track goal progress without debiting wallet balances. Goal deletion cascades to its contribution history. Neither engine activates triggers for foreign-key cascade actions, so the application does not rely on contribution-delete triggers during goal deletion.
 
+Recent contributions have an **Edit** link, including on achieved goals. The edit procedure locks the owned goal and contribution, validates the amount/date/account, updates the existing record, and recalculates the total in one transaction. A completed goal returns to active if the corrected total is below its target; an active goal becomes completed when the target is met. Paused and cancelled goals keep their status. An existing archived account may be retained, but selecting a different account requires an active wallet in the same currency. Wallet balances remain unchanged. Application contribution corrections must use this procedure to keep status synchronized.
+
 ## Demonstration and validation
 
 Open `case_study_examples.sql` in phpMyAdmin after installing the programs. It demonstrates temporary-table `CREATE`/`ALTER`, app-table DML, operators, aggregates, joins, views and reporting `CALL`s. The app-table demo is wrapped in a transaction and ends with `ROLLBACK`; the temporary table is removed separately. Mutating procedure examples above must run outside that outer transaction.
@@ -134,7 +137,7 @@ The static test does not connect to a database. The program test creates and rem
 
 To test a second engine, set the connection environment variables described in the main README for both the test command and its PHP HTTP server. Run the schema import and installer against that engine first. Keep its database separate from your existing XAMPP data.
 
-Verification on this implementation used MariaDB 10.4.32 and an isolated MySQL Community Server 26.10.0 instance: 72 database-program assertions and 238 PHP HTTP-workflow assertions passed on each engine. The MySQL 8.0.16 minimum is the SQL compatibility target; that exact version was not available for runtime testing.
+Verification on this implementation used MariaDB 10.4.32 and an isolated MySQL Community Server 26.10.0 instance: 88 database-program assertions and 264 PHP HTTP-workflow assertions passed on each engine, including contribution corrections and authorization. The MySQL 8.0.16 minimum is the SQL compatibility target; that exact version was not available for runtime testing.
 
 MySQL references: [stored procedures](https://dev.mysql.com/doc/refman/8.0/en/create-procedure.html), [triggers](https://dev.mysql.com/doc/refman/8.0/en/trigger-syntax.html), [transaction handling](https://dev.mysql.com/doc/refman/8.0/en/commit.html), and [Performance Schema transaction events](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-events-transactions-current-table.html).
 

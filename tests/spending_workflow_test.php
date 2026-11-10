@@ -666,6 +666,48 @@ try {
     workflow_assert($balanceQuery->fetchColumn() === '123.45', 'Savings contributions remain separate from wallet balance changes.');
     $savingsPage = workflow_request($client, 'savings.php?view=achieved');
     workflow_assert($savingsPage['status'] === 200 && str_contains($savingsPage['body'], $goalFields['name']), 'Savings page renders the procedure-backed completed goal.');
+    $contributionQuery=$pdo->prepare('SELECT * FROM savings_contributions WHERE savings_goal_id=? ORDER BY id LIMIT 1');
+    $contributionQuery->execute([$createdGoal['id']]);
+    $editableContribution=$contributionQuery->fetch();
+    workflow_assert(str_contains($savingsPage['body'],'edit_contribution='.$editableContribution['id']), 'Recent contributions offer an Edit link on completed goals.');
+    $editPath='savings.php?edit_contribution='.$editableContribution['id'];
+    $editPage=workflow_request($client,$editPath);
+    workflow_assert($editPage['status']===200 && str_contains($editPage['body'],'id="contribution-editor"'), 'Contribution edit form opens for an owned completed goal.');
+    workflow_assert(workflow_text($editPage['body'],'//section[@id="contribution-editor"]//h2')==='Edit contribution', 'Contribution editor has its own heading.');
+    $editFields=[
+        'csrf_token'=>workflow_csrf($editPage['body']), 'action'=>'update_contribution', 'goal_id'=>$createdGoal['id'],
+        'contribution_id'=>$editableContribution['id'], 'account_id'=>'', 'amount'=>'10.00',
+        'contribution_date'=>$today->modify('-1 day')->format('Y-m-d'), 'note'=>'Correction <extra> & savings',
+    ];
+    workflow_assert(workflow_request($client,'savings.php',$editFields)['status']===302, 'Contribution edit saves through its procedure.');
+    $createdGoalQuery->execute([$userId,$goalFields['name']]);
+    $correctedGoal=$createdGoalQuery->fetch();
+    workflow_assert($correctedGoal['saved']==='70.00' && $correctedGoal['status']==='active' && (int)$correctedGoal['contribution_count']===2, 'Correcting a completed contribution updates the total and reopens the goal without adding a record.');
+    $contributionQuery->execute([$createdGoal['id']]);
+    $correctedContribution=$contributionQuery->fetch();
+    workflow_assert($correctedContribution['wallet_id']===null && $correctedContribution['note']===$editFields['note'] && substr($correctedContribution['contribution_date'],0,10)===$editFields['contribution_date'], 'Edited account, date and note are stored.');
+    $correctedPage=workflow_request($client,'savings.php');
+    workflow_assert(str_contains($correctedPage['body'],'Correction &lt;extra&gt; &amp; savings'), 'Edited contribution notes are escaped in recent history.');
+    foreach (['amount'=>'0.00','contribution_date'=>'not-a-date','account_id'=>$wallets['foreign']] as $field=>$invalidValue) {
+        workflow_assert(workflow_request($client,'savings.php',array_replace($editFields,[$field=>$invalidValue]))['status']===302, 'Invalid contribution edit returns safely.');
+        $contributionQuery->execute([$createdGoal['id']]);
+        workflow_assert($contributionQuery->fetch()['amount']==='10.00', 'Invalid edits leave the contribution unchanged.');
+    }
+    workflow_assert(workflow_request($client,'savings.php',array_replace($editFields,['csrf_token'=>'invalid']))['status']===403, 'Contribution editing requires a valid CSRF token.');
+    $otherClient=workflow_client();
+    workflow_login($otherClient,$emails['foreign'],$password);
+    $foreignEdit=workflow_request($otherClient,$editPath);
+    workflow_assert(!str_contains($foreignEdit['body'],'id="contribution-editor"') && !str_contains($foreignEdit['body'],$goalFields['name']), 'Another user cannot open the contribution editor or see its goal.');
+    $foreignFields=array_replace($editFields,['csrf_token'=>workflow_csrf($foreignEdit['body'])]);
+    workflow_assert(workflow_request($otherClient,'savings.php',$foreignFields)['status']===302, 'Forged contribution edit is rejected safely.');
+    $contributionQuery->execute([$createdGoal['id']]);
+    workflow_assert($contributionQuery->fetch()['amount']==='10.00','Another user cannot modify the contribution.');
+    $balanceQuery->execute([$createdWallet['id']]);
+    workflow_assert($balanceQuery->fetchColumn()==='123.45','Contribution corrections preserve wallet balances.');
+    $editFields['amount']='40.00';
+    workflow_assert(workflow_request($client,'savings.php',$editFields)['status']===302,'The corrected contribution can reach the goal target again.');
+    $createdGoalQuery->execute([$userId,$goalFields['name']]);
+    workflow_assert($createdGoalQuery->fetch()['status']==='completed','Contribution edits complete reached goals again.');
     workflow_assert(workflow_request($client, 'savings.php', [
         'csrf_token' => $csrf, 'action' => 'delete', 'goal_id' => $createdGoal['id'],
     ])['status'] === 302, 'Savings delete calls its procedure.');

@@ -8,6 +8,7 @@ $pdo = getDatabaseConnection();
 $currencies = wallet_currency_options($pdo, $walletUserId);
 $statuses = ['active', 'paused', 'completed', 'cancelled'];
 $today = new DateTimeImmutable('today');
+$redirect = 'savings.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     wallet_require_valid_post();
@@ -58,16 +59,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 wallet_set_flash('success', ($result[0]['status'] ?? '') === 'completed'
                     ? 'Contribution recorded. Goal target reached!' : 'Contribution recorded.');
             }
+        } elseif ($action === 'update_contribution' && $goalId !== false) {
+            $contributionId = filter_var($_POST['contribution_id'] ?? null, FILTER_VALIDATE_INT);
+            $amount = wallet_post_string('amount');
+            $note = wallet_post_string('note');
+            $contributionDate = wallet_post_string('contribution_date');
+            $accountValue = wallet_post_string('account_id');
+            $accountId = $accountValue === '' ? null : filter_var($accountValue, FILTER_VALIDATE_INT);
+            if ($contributionId !== false) {
+                $redirect = 'savings.php?edit_contribution=' . $contributionId;
+            }
+            if ($contributionId === false || !wallet_valid_amount($amount) || strlen($note) > 255
+                || !wallet_valid_date($contributionDate) || $accountId === false) {
+                wallet_set_flash('error', 'Check the contribution amount, date, note, and account.');
+            } else {
+                $result = wallet_call_procedure($pdo, 'sp_update_savings_contribution', [
+                    $walletUserId, $goalId, $contributionId, $accountId, $amount,
+                    $contributionDate . ' 12:00:00', $note === '' ? null : $note,
+                ]);
+                $redirect = ($result[0]['status'] ?? '') === 'completed' ? 'savings.php?view=achieved' : 'savings.php';
+                wallet_set_flash('success', 'Contribution updated.');
+            }
         } else {
             wallet_set_flash('error', 'That goal action could not be completed.');
         }
     } catch (PDOException $error) {
         wallet_set_flash('error', wallet_procedure_error($error));
     }
-    header('Location: savings.php');
+    header('Location: ' . $redirect);
     exit;
 }
 
+$editContributionId = filter_input(INPUT_GET, 'edit_contribution', FILTER_VALIDATE_INT);
+$editContribution = null;
+if ($editContributionId !== false && $editContributionId !== null) {
+    $statement = $pdo->prepare(
+        'SELECT sc.*, g.name AS goal_name, g.currency_code, g.status AS goal_status,
+                w.name AS account_name, w.is_archived AS account_archived
+         FROM savings_contributions sc
+         INNER JOIN savings_goals g ON g.id=sc.savings_goal_id AND g.user_id=:user_id
+         LEFT JOIN wallets w ON w.id=sc.wallet_id AND w.user_id=g.user_id
+         WHERE sc.id=:id'
+    );
+    $statement->execute(['user_id' => $walletUserId, 'id' => $editContributionId]);
+    $editContribution = $statement->fetch() ?: null;
+    if ($editContribution === null) {
+        wallet_set_flash('error', 'That contribution could not be found.');
+    }
+}
 $editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT);
 $editGoal = null;
 if ($editId !== false && $editId !== null) {
@@ -124,7 +163,7 @@ foreach ($goals as &$goal) {
 }
 unset($goal);
 
-$viewAchieved = ($_GET['view'] ?? '') === 'achieved';
+$viewAchieved = $editContribution !== null ? $editContribution['goal_status'] === 'completed' : ($_GET['view'] ?? '') === 'achieved';
 $activeGoals = array_filter($goals, static fn (array $g): bool => $g['status'] !== 'completed');
 $achievedGoals = array_filter($goals, static fn (array $g): bool => $g['status'] === 'completed');
 $displayGoals = $viewAchieved ? $achievedGoals : $activeGoals;
@@ -139,7 +178,7 @@ $accountStatement->execute(['user_id' => $walletUserId]);
 $accounts = $accountStatement->fetchAll();
 
 $contributionStatement = $pdo->prepare(
-    'SELECT sc.savings_goal_id, sc.amount, sc.contribution_date, sc.note, a.name AS account_name
+    'SELECT sc.id, sc.savings_goal_id, sc.amount, sc.contribution_date, sc.note, a.name AS account_name
      FROM savings_contributions sc
      INNER JOIN savings_goals g ON g.id = sc.savings_goal_id AND g.user_id = :user_id
      LEFT JOIN wallets a ON a.id = sc.wallet_id AND a.user_id = :account_user_id
@@ -273,7 +312,10 @@ require __DIR__ . '/includes/app_shell_start.php';
                                             <?= wallet_escape((string) ($contribution['note'] ?: ($contribution['account_name'] ?: 'Contribution'))) ?>
                                             · <?= wallet_escape(date('M j, Y', strtotime((string) $contribution['contribution_date']))) ?>
                                         </span>
-                                        <span class="shrink-0 font-semibold text-slate-700"><?= wallet_escape((string) $goal['currency_code']) ?> <?= number_format((float) $contribution['amount'], 2) ?></span>
+                                        <div class="flex shrink-0 items-center gap-2">
+                                            <span class="font-semibold text-slate-700"><?= wallet_escape((string) $goal['currency_code']) ?> <?= number_format((float) $contribution['amount'], 2) ?></span>
+                                            <a href="savings.php?edit_contribution=<?= (int) $contribution['id'] ?>#contribution-editor" aria-label="Edit contribution <?= wallet_escape((string) $contribution['amount']) ?> to <?= wallet_escape((string) $goal['name']) ?>" class="rounded-lg px-2 py-2 font-medium text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">Edit</a>
+                                        </div>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
@@ -318,6 +360,47 @@ require __DIR__ . '/includes/app_shell_start.php';
             <?php endforeach; ?>
         </section>
 
+        <?php if ($editContribution !== null): ?>
+        <section id="contribution-editor" class="scroll-mt-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+            <h2 class="font-semibold tracking-tight">Edit contribution</h2>
+            <p class="mt-1 text-sm text-slate-500"><?= wallet_escape((string) $editContribution['goal_name']) ?> · <?= wallet_escape((string) $editContribution['currency_code']) ?></p>
+            <form method="post" action="savings.php" class="mt-5 space-y-4">
+                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                <input type="hidden" name="action" value="update_contribution">
+                <input type="hidden" name="goal_id" value="<?= (int) $editContribution['savings_goal_id'] ?>">
+                <input type="hidden" name="contribution_id" value="<?= (int) $editContribution['id'] ?>">
+                <div>
+                    <label for="contribution-amount" class="mb-1.5 block text-sm font-medium text-slate-700">Amount</label>
+                    <input id="contribution-amount" name="amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) $editContribution['amount']) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                </div>
+                <div>
+                    <label for="contribution-date" class="mb-1.5 block text-sm font-medium text-slate-700">Contribution date</label>
+                    <input id="contribution-date" name="contribution_date" type="date" required value="<?= wallet_escape(substr((string) $editContribution['contribution_date'], 0, 10)) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                </div>
+                <div>
+                    <label for="contribution-account" class="mb-1.5 block text-sm font-medium text-slate-700">Associated account <span class="font-normal text-slate-400">optional</span></label>
+                    <select id="contribution-account" name="account_id" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                        <option value="">Not specified</option>
+                        <?php if ($editContribution['account_archived']): ?>
+                            <option value="<?= (int) $editContribution['wallet_id'] ?>" selected><?= wallet_escape((string) $editContribution['account_name']) ?> (archived)</option>
+                        <?php endif; ?>
+                        <?php foreach ($accounts as $account): ?>
+                            <?php if ($account['currency_code'] === $editContribution['currency_code']): ?>
+                                <option value="<?= (int) $account['id'] ?>" <?= (int) $editContribution['wallet_id'] === (int) $account['id'] ? 'selected' : '' ?>><?= wallet_escape((string) $account['name']) ?></option>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label for="contribution-note" class="mb-1.5 block text-sm font-medium text-slate-700">Note <span class="font-normal text-slate-400">optional</span></label>
+                    <input id="contribution-note" name="note" type="text" maxlength="255" value="<?= wallet_escape((string) $editContribution['note']) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                </div>
+                <p class="text-xs leading-5 text-slate-500">Saving updates the goal total and progress. A completed goal returns to Active if its total falls below the target. Paused and cancelled goals keep their status.</p>
+                <button type="submit" class="w-full rounded-xl bg-[#123a2c] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0d3024]">Save contribution</button>
+                <a href="savings.php<?= $viewAchieved ? '?view=achieved' : '' ?>" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a>
+            </form>
+        </section>
+        <?php else: ?>
         <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
             <h2 class="font-semibold tracking-tight"><?= $editGoal !== null ? 'Edit savings goal' : 'Create a goal' ?></h2>
             <p class="mt-1 text-sm text-slate-500">Set a target and keep track of each contribution.</p>
@@ -355,6 +438,7 @@ require __DIR__ . '/includes/app_shell_start.php';
                 <?php if ($editGoal !== null): ?><a href="savings.php" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a><?php endif; ?>
             </form>
         </section>
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 <?php require __DIR__ . '/includes/app_shell_end.php'; ?>
