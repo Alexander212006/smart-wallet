@@ -1,6 +1,6 @@
 # Smart Wallet database case study
 
-The database programs target **MySQL Community Server 8.0.16 or newer**, including MySQL 8.0.46, using InnoDB tables. The PHP app calls the stored procedures and reads the views; these SQL objects are part of the running application.
+The database programs support **MySQL 8.0.16+ and MariaDB 10.4+**, using InnoDB tables. XAMPP's MariaDB is supported without changing engines. The PHP app calls the stored procedures and reads the views; these SQL objects are part of the running application.
 
 ## Rubric mapping
 
@@ -17,7 +17,7 @@ The database programs target **MySQL Community Server 8.0.16 or newer**, includi
 ## Installation
 
 1. For a new database, import `schema.sql`. For an existing database, apply the three table migrations listed in the main README.
-2. Stop application writes during installation. Run the read-only preflight from the project root:
+2. Stop application writes during installation. Run the preflight from the project root; it leaves application records and SQL programs unchanged:
 
    ```text
    php database/install_programs.php --check
@@ -32,7 +32,23 @@ The database programs target **MySQL Community Server 8.0.16 or newer**, includi
 4. The installer loads `views.sql`, `triggers.sql`, and `procedures.sql` in that order. It pre-parses every file before running DDL, and each trigger or procedure is dropped immediately before its matching `CREATE`, so rerunning after a partial failure is safe. You can also import those files in that order through a MySQL client after selecting `smart_wallet`.
 5. Open the app. Reinstalling the SQL programs replaces their definitions while preserving table records and existing balances.
 
-The installation account needs privileges to create/replace views, routines and triggers. The configured application account also needs to read its own Performance Schema transaction event, and the `events_transactions_current` consumer must be enabled. Procedures and views use `SQL SECURITY INVOKER`, and no account name is hardcoded as a definer. The scripts preserve the connection's SQL mode while defining mutating routines/triggers with strict table checks, so balance overflow rolls back instead of silently clipping values.
+The installation account needs privileges to create/replace views, routines and triggers. Procedures and views use `SQL SECURITY INVOKER`, and no account name is hardcoded as a definer. The scripts preserve the connection's SQL mode while defining mutating routines/triggers with strict table checks, so balance overflow rolls back instead of silently clipping values.
+
+### Engine-specific transaction checks
+
+MariaDB uses `@@SESSION.in_transaction` and does not require Performance Schema. MySQL uses `performance_schema.events_transactions_current` and `PS_CURRENT_THREAD_ID()`. On MySQL the application account needs permission to read the Performance Schema tables, the `transaction` instrument must be enabled, and these consumers must be enabled: `global_instrumentation`, `thread_instrumentation`, and `events_transactions_current`. The preflight checks those settings and verifies that an empty explicit transaction is visible on its connection. It reports missing prerequisites before replacing any programs.
+
+If MySQL reports disabled instrumentation, an administrator can enable it before retrying the preflight:
+
+```sql
+UPDATE performance_schema.setup_consumers SET ENABLED='YES'
+WHERE NAME IN ('global_instrumentation','thread_instrumentation','events_transactions_current');
+UPDATE performance_schema.setup_instruments SET ENABLED='YES' WHERE NAME='transaction';
+```
+
+Use server startup configuration to retain MySQL instrumentation settings across restarts. The installer does not change those global settings.
+
+The shared `procedures.sql` uses executable comments only around the engine-specific expressions: `/*!80016 ... */` for MySQL and `/*M!100400 ... */` for MariaDB. MariaDB skips the MySQL version block; MySQL ignores the MariaDB block. Both engines still run the same validation, DML, rollback handlers, and reports. Each mutating routine rejects disabled autocommit as well as an active caller transaction.
 
 ## Stored procedure catalog
 
@@ -101,7 +117,7 @@ The app always filters views by the session user and, where appropriate, currenc
 
 **Do not update wallet balances again in PHP after saving a transaction.** Both application `CALL`s and direct transaction `INSERT`/`UPDATE`/`DELETE` statements run the balance triggers. Existing opening balances are preserved; installing triggers does not rebuild balances from historical transactions. Procedures restrict new app entries to active wallets. Direct SQL can maintain archived history, whose balances still update but whose spending is excluded from active reports.
 
-Savings contributions continue to track goal progress without debiting wallet balances. Goal deletion cascades to its contribution history. MySQL does not activate triggers for foreign-key cascade actions, so the application does not rely on contribution-delete triggers during goal deletion.
+Savings contributions continue to track goal progress without debiting wallet balances. Goal deletion cascades to its contribution history. Neither engine activates triggers for foreign-key cascade actions, so the application does not rely on contribution-delete triggers during goal deletion.
 
 ## Demonstration and validation
 
@@ -114,6 +130,12 @@ php tests/spending_analysis_test.php
 php tests/overspending_test.php
 ```
 
-The static test does not connect to MySQL. The program test creates and removes a disposable database. It checks procedure permissions, direct SQL triggers, exact balance deltas, wallet moves, overflow rollback, nested-transaction rejection, generated transaction types, savings completion, currency protection, recurring month-end/leap-year dates, reporting scope and rerunnable installation. Run the HTTP workflow test from the main README to exercise the actual PHP forms.
+The static test does not connect to a database. The program test creates and removes a disposable database on the configured engine. It checks ownership validation, direct SQL triggers, exact balance deltas, wallet moves, overflow rollback, nested-transaction rejection with empty and modified caller transactions, disabled autocommit, generated transaction types, savings completion, currency protection, recurring month-end/leap-year dates, future limits, reporting scope, rerunnable installation, and rollback of the complete SQL demo. Run the HTTP workflow test from the main README to exercise the actual PHP forms.
+
+To test a second engine, set the connection environment variables described in the main README for both the test command and its PHP HTTP server. Run the schema import and installer against that engine first. Keep its database separate from your existing XAMPP data.
+
+Verification on this implementation used MariaDB 10.4.32 and an isolated MySQL Community Server 26.10.0 instance: 72 database-program assertions and 238 PHP HTTP-workflow assertions passed on each engine. The MySQL 8.0.16 minimum is the SQL compatibility target; that exact version was not available for runtime testing.
 
 MySQL references: [stored procedures](https://dev.mysql.com/doc/refman/8.0/en/create-procedure.html), [triggers](https://dev.mysql.com/doc/refman/8.0/en/trigger-syntax.html), [transaction handling](https://dev.mysql.com/doc/refman/8.0/en/commit.html), and [Performance Schema transaction events](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-events-transactions-current-table.html).
+
+MariaDB references: [transaction status](https://mariadb.com/docs/server/reference/sql-statements/transactions/start-transaction), [executable comments](https://mariadb.com/docs/server/reference/sql-statements/comment-syntax), and [stored procedure SQL modes](https://mariadb.com/docs/server/server-usage/stored-routines/stored-procedures/create-procedure).

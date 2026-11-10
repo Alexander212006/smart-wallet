@@ -13,38 +13,7 @@ if (!in_array($mode, ['--check', '--apply'], true)) {
 }
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/sql_runner.php';
-
-/** Verify requirements used by the MySQL-specific transaction ownership guard. */
-function wallet_check_mysql_program_support(PDO $pdo): string
-{
-    $database = $pdo->query('SELECT DATABASE()')->fetchColumn();
-    if (!is_string($database) || $database === '') {
-        throw new RuntimeException('No target database is selected.');
-    }
-
-    $version = (string) $pdo->query('SELECT VERSION()')->fetchColumn();
-    if (stripos($version, 'MariaDB') !== false
-        || preg_match('/^(\d+\.\d+\.\d+)/', $version, $match) !== 1
-        || version_compare($match[1], '8.0.16', '<')) {
-        throw new RuntimeException('MySQL 8.0.16 or newer is required; connected server reports ' . $version . '.');
-    }
-
-    if ((int) $pdo->query('SELECT @@GLOBAL.performance_schema')->fetchColumn() !== 1) {
-        throw new RuntimeException('MySQL Performance Schema must be enabled for transaction ownership checks.');
-    }
-    $consumer = $pdo->query(
-        "SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME='events_transactions_current'"
-    )->fetchColumn();
-    if ($consumer !== 'YES') {
-        throw new RuntimeException('Enable the Performance Schema events_transactions_current consumer before installing.');
-    }
-    $pdo->query(
-        "SELECT EXISTS(SELECT 1 FROM performance_schema.events_transactions_current "
-        . "WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE')"
-    )->closeCursor();
-
-    return $version;
-}
+require_once __DIR__ . '/program_support.php';
 
 $files = ['views.sql', 'triggers.sql', 'procedures.sql'];
 try {
@@ -52,8 +21,8 @@ try {
         wallet_parse_sql_file(__DIR__ . '/' . $file);
     }
     $pdo = getDatabaseConnection();
-    $version = wallet_check_mysql_program_support($pdo);
-    echo 'Preflight passed for MySQL ' . $version . '.' . PHP_EOL;
+    $version = wallet_check_program_support($pdo);
+    echo 'Preflight passed for ' . $version . '.' . PHP_EOL;
 
     if ($mode === '--check') {
         echo "No database programs were changed.\n";

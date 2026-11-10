@@ -60,13 +60,16 @@ database_static_assert(count($procedureCreates) === 17, 'Seventeen procedures sh
 database_static_assert($procedureDrops === $procedureCreates, 'Every procedure must be dropped immediately before it is recreated.');
 
 database_static_assert(
-    preg_match('/@@(?:SESSION\.)?in_transaction\b/i', $procedures) === 0,
-    'The MariaDB in_transaction system variable must not be used.'
+    substr_count($procedures, '/*M!100400 OR @@SESSION.in_transaction<>0 */') === 12,
+    'All twelve MariaDB transaction guards must use MariaDB-only executable comments.'
 );
+
 database_static_assert(
-    substr_count($procedures, '@@SESSION.autocommit=0 OR EXISTS') === 12,
-    'All twelve mutating procedures should reject caller-owned MySQL transactions.'
+    substr_count($procedures, 'IF @@SESSION.autocommit=0') === 12
+        && substr_count($procedures, '/*!80016 OR EXISTS') === 12,
+    'All twelve MySQL transaction guards must use version comments ignored by MariaDB.'
 );
+
 database_static_assert(
     substr_count($procedures, 'performance_schema.events_transactions_current') === 12
         && substr_count($procedures, 'PS_CURRENT_THREAD_ID()') === 12,

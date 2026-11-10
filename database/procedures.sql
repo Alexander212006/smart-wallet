@@ -1,6 +1,7 @@
--- Smart Wallet stored procedures for MySQL 8.0. Select smart_wallet before importing.
+-- Smart Wallet stored procedures for MySQL 8.0.16+ and MariaDB 10.4+. Select smart_wallet before importing.
 -- Mutating procedures own their transactions. Triggers maintain wallet balances.
--- Their guards require Performance Schema current-transaction instrumentation.
+-- Executable comments select each engine's transaction guard: MySQL uses Performance Schema; MariaDB uses in_transaction.
+-- MariaDB ignores MySQL version comments in the 50700..99999 range; MySQL ignores /*M! */ comments.
 SET @wallet_previous_sql_mode=@@SESSION.sql_mode;
 SET SESSION sql_mode=IF(FIND_IN_SET('STRICT_TRANS_TABLES',@@SESSION.sql_mode) OR FIND_IN_SET('STRICT_ALL_TABLES',@@SESSION.sql_mode),@@SESSION.sql_mode,CONCAT_WS(',',@@SESSION.sql_mode,'STRICT_TRANS_TABLES'));
 DELIMITER $$
@@ -13,7 +14,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -37,7 +41,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -59,7 +66,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -83,7 +93,10 @@ BEGIN
     DECLARE v_wallet BIGINT UNSIGNED DEFAULT NULL;
     DECLARE v_old_amount DECIMAL(14,2);
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -120,7 +133,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -144,7 +160,10 @@ BEGIN
     DECLARE v_currency CHAR(3);
     DECLARE v_contribution_count BIGINT UNSIGNED DEFAULT 0;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -177,7 +196,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -198,7 +220,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -222,7 +247,10 @@ BEGIN
     DECLARE v_currency CHAR(3);
     DECLARE v_contribution BIGINT UNSIGNED;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -251,7 +279,10 @@ BEGIN
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE v_min_end DATE;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -287,7 +318,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -308,7 +342,10 @@ BEGIN
     DECLARE v_missing BOOLEAN DEFAULT FALSE;
     DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_missing=TRUE;
-    IF @@SESSION.autocommit=0 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
+    IF @@SESSION.autocommit=0
+        /*!80016 OR EXISTS(SELECT 1 FROM performance_schema.events_transactions_current WHERE THREAD_ID=PS_CURRENT_THREAD_ID() AND STATE='ACTIVE') */
+        /*M!100400 OR @@SESSION.in_transaction<>0 */
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Call this procedure outside an existing transaction.'; END IF;
     work: BEGIN
         DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
         START TRANSACTION;
@@ -329,15 +366,15 @@ BEGIN
     IF p_today IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Choose a valid reporting date.'; END IF;
     WITH offsets AS (
         SELECT b.*,GREATEST(0,CASE period WHEN 'weekly' THEN FLOOR(DATEDIFF(p_today,start_date)/7)
-            WHEN 'monthly' THEN (YEAR(p_today)-YEAR(start_date))*12+MONTH(p_today)-MONTH(start_date)
-            ELSE YEAR(p_today)-YEAR(start_date) END) AS raw_offset
+            WHEN 'monthly' THEN PERIOD_DIFF(EXTRACT(YEAR_MONTH FROM p_today),EXTRACT(YEAR_MONTH FROM start_date))
+            ELSE CAST(YEAR(p_today) AS SIGNED)-CAST(YEAR(start_date) AS SIGNED) END) AS raw_offset
         FROM expense_limits b WHERE user_id=p_user_id
     ), candidates AS (
         SELECT offsets.*,CASE period WHEN 'weekly' THEN DATE_ADD(start_date,INTERVAL ((raw_offset)*7) DAY)
         WHEN 'monthly' THEN DATE_ADD(start_date,INTERVAL (raw_offset) MONTH)
         ELSE DATE_ADD(start_date,INTERVAL (raw_offset) YEAR) END AS candidate_start FROM offsets
     ), periods AS (
-        SELECT candidates.*,CASE WHEN is_recurring=0 THEN 0 WHEN candidate_start>p_today THEN GREATEST(0,raw_offset-1)
+        SELECT candidates.*,CASE WHEN is_recurring=0 THEN 0 WHEN candidate_start>p_today THEN GREATEST(0,CAST(raw_offset AS SIGNED)-1)
             ELSE raw_offset END AS period_offset FROM candidates
     ), boundaries AS (
         SELECT periods.*,CASE period WHEN 'weekly' THEN DATE_ADD(start_date,INTERVAL ((period_offset)*7) DAY)

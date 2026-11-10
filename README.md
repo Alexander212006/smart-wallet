@@ -1,21 +1,23 @@
 # Smart Wallet
 
-A vanilla PHP and MySQL personal finance app. Serve this directory with XAMPP and configure the database connection in `config/database.php`.
+A vanilla PHP personal finance app for MySQL 8.0.16+ or XAMPP MariaDB 10.4+. Serve this directory with XAMPP and configure the database connection in `config/database.php`.
+
+The connection also accepts `SMART_WALLET_DB_DSN`, `SMART_WALLET_DB_USER`, and `SMART_WALLET_DB_PASSWORD` environment variables. For example, a DSN of `mysql:host=127.0.0.1;port=3307;dbname=smart_wallet;charset=utf8mb4` selects a separate local MySQL server. Without overrides, the existing XAMPP connection settings apply.
 
 ## Database programs and case study
 
 The app uses 17 stored procedures, five views, and seven triggers. Procedures handle finance operations and reports; transaction triggers maintain wallet balances, and a savings trigger completes reached goals. PHP handles sessions, CSRF, password hashing, input feedback, and rendering.
 
-After importing the schema or applying the existing table migrations, run the read-only MySQL compatibility preflight and then install the database programs:
+After importing the schema or applying the existing table migrations, run the compatibility preflight and then install the database programs:
 
 ```text
 php database/install_programs.php --check
 php database/install_programs.php --apply
 ```
 
-Run the installer before using the updated PHP app, with application writes stopped during installation. It targets MySQL 8.0.16 or newer (including MySQL Community Server 8.0.46), requires the Performance Schema `events_transactions_current` consumer, can be rerun after a partial failure, and does not recalculate existing balances. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction.
+Run the installer before using the updated PHP app, with application writes stopped during installation. The same SQL files support MySQL 8.0.16+ and MariaDB 10.4+, can be rerun after a partial failure, and do not recalculate existing balances. MySQL requires enabled Performance Schema transaction instrumentation; MariaDB uses its native transaction status and has no Performance Schema requirement. The application must not also adjust balances after a transaction; triggers own those changes. Mutating procedures manage their own database transactions and reject an existing outer transaction or disabled autocommit.
 
-See [the case-study guide](database/CASE_STUDY.md) for the rubric mapping, procedure catalog, SQL examples, and installation details. The database-program compatibility target is MySQL Community Server 8.0.46.
+See [the case-study guide](database/CASE_STUDY.md) for all six rubric requirements, the procedure catalog, SQL examples, and engine-specific installation details.
 
 ## Spending analysis
 
@@ -69,7 +71,7 @@ PDF export uses the project's built-in A4 writer with PDF base fonts, wrapped ta
 ### Run in XAMPP
 
 1. Start Apache and MySQL from the XAMPP control panel.
-2. Configure the PDO connection in `config/database.php`. For a new installation, import `database/schema.sql`; for an existing installation, apply the migrations listed above.
+2. Configure the PDO connection in `config/database.php`. For a new installation, import `database/schema.sql`; for an existing installation, apply the migrations listed above. Run the database program installer before opening the app.
 3. Open `http://localhost/vanilla-php/smart-wallet/`, sign in, and choose **Financial Reports**.
 4. Choose Weekly, Monthly, or Yearly, select a date and one of your active-wallet currencies, then select **Generate Report**.
 5. Use **Export PDF** or **Export CSV** to download the exact displayed report.
@@ -84,20 +86,21 @@ Run the Financial Reports calculation, isolation, budget, CSV, and PDF tests (PD
 php tests/financial_reports_test.php
 ```
 
-Check database-program SQL framing and MySQL compatibility without connecting to or changing a database:
+Check database-program SQL framing and both engines' transaction guards without connecting to or changing a database:
 
 ```text
 php tests/database_programs_static_test.php
 ```
 
-Run the calculation and query-isolation tests with PHP CLI (PDO SQLite required):
+Run the spending, overspending, and shared expense-limit calculation tests with PHP CLI:
 
 ```text
 php tests/spending_analysis_test.php
 php tests/overspending_test.php
+php tests/overview_expense_limits_test.php
 ```
 
-Test procedures, views, triggers, rollback, ownership, and direct SQL balance updates in a disposable database:
+Test procedures, views, triggers, rollback, ownership, direct SQL balance updates, and the SQL demo in a disposable database on the configured engine:
 
 ```text
 php tests/database_programs_test.php --run

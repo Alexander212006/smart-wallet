@@ -55,10 +55,22 @@ function wallet_execute_sql_file(PDO $pdo, string $path): void
     $statements = wallet_parse_sql_file($path);
     foreach ($statements as $index => $statement) {
         try {
-            $result = $pdo->exec($statement['sql']);
+            $result = $pdo->query($statement['sql']);
             if ($result === false) {
                 $details = $pdo->errorInfo();
                 throw new RuntimeException($details[2] ?? 'Unknown database error.');
+            }
+            // Scripts can contain SELECT and CALL as well as DDL. Free every result
+            // before the next statement, including CALL's final status result set.
+            try {
+                do {
+                    if ($result->columnCount() > 0) {
+                        while ($result->fetch(PDO::FETCH_NUM) !== false) {
+                        }
+                    }
+                } while ($result->nextRowset());
+            } finally {
+                $result->closeCursor();
             }
         } catch (Throwable $error) {
             throw new RuntimeException(

@@ -1,4 +1,4 @@
--- MySQL 8.0 triggers. Balance changes belong to the database; do not also adjust balances in PHP.
+-- MySQL 8.0.16+ / MariaDB 10.4+ triggers. Do not also adjust balances in PHP.
 -- Installing these triggers preserves all existing records and opening balances.
 SET @wallet_previous_sql_mode=@@SESSION.sql_mode;
 SET SESSION sql_mode=IF(FIND_IN_SET('STRICT_TRANS_TABLES',@@SESSION.sql_mode) OR FIND_IN_SET('STRICT_ALL_TABLES',@@SESSION.sql_mode),@@SESSION.sql_mode,CONCAT_WS(',',@@SESSION.sql_mode,'STRICT_TRANS_TABLES'));

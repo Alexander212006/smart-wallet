@@ -6,8 +6,10 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 if (($argv[1] ?? '') !== '--run') { fwrite(STDERR, "Usage: php tests/database_programs_test.php --run\n"); exit(2); }
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../database/sql_runner.php';
+require_once __DIR__ . '/../database/program_support.php';
 require_once __DIR__ . '/../includes/database_procedures.php';
 $pdo = getDatabaseConnection();
+$serverVersion = wallet_check_program_support($pdo);
 $original = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
 $database = 'smart_wallet_program_test_' . bin2hex(random_bytes(6));
 $assertions = 0;
@@ -103,6 +105,21 @@ try {
     program_assert($pdo->inTransaction(),'A rejected nested call does not commit or roll back its caller.');
     $pdo->rollBack();
 
+    // A caller with pending writes must retain both its work and control of its transaction.
+    $pdo->beginTransaction();
+    $pdo->exec("UPDATE wallets SET name='Caller pending change' WHERE id=".$wallet);
+    program_reject(fn()=>program_call('sp_update_wallet',[$user,$wallet,'Unexpected commit','cash']), 'A nested write call is rejected without committing caller changes.');
+    program_assert($pdo->inTransaction() && $pdo->query('SELECT name FROM wallets WHERE id='.$wallet)->fetchColumn()==='Caller pending change', 'Rejected calls preserve pending caller writes.');
+    $pdo->rollBack();
+    program_assert($pdo->query('SELECT name FROM wallets WHERE id='.$wallet)->fetchColumn()!=='Caller pending change', 'Caller work remains reversible after a rejected procedure.');
+    $pdo->exec('SET SESSION autocommit=0');
+    try {
+        program_reject(fn()=>program_call('sp_create_wallet',[$user,'Autocommit disabled','cash','0.00','PHP']), 'Procedures reject callers that disabled autocommit.');
+    } finally {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        $pdo->exec('SET SESSION autocommit=1');
+    }
+
     foreach ([[$user,$wallet,'Salary','20.00',$date,null],[$user,$wallet,'Food','-10.00',$date,'essential'],
         [$user,$wallet,'Food','-5.00',$date,null],[$user,$wallet,'Food','-900.00','2024-03-11 12:00:00',null],
         [$user,$usd,'Food','-7.00',$date,null],[$user,$archived,'Food','-40.00',$date,null],[$other,$foreign,'Secret','-70.00',$date,null]] as $row) {$insert->execute($row);}
@@ -141,6 +158,8 @@ try {
     $limit=(int)program_call('sp_save_expense_limit',[$user,null,'Food limit','Food','15.00','PHP','monthly','2024-03-01',null,1])[0]['id'];
     $limits=program_call('sp_get_expense_limits',[$user,'2024-03-10']);
     program_assert(count($limits)===1 && $limits[0]['spent']==='15.00' && (int)$limits[0]['range_active']===1,'Limits exclude future expenses and preserve category/currency/user scope.');
+    $futureLimit=program_call('sp_get_expense_limits',[$user,'2023-12-31'])[0];
+    program_assert((int)$futureLimit['range_active']===0 && (float)$futureLimit['spent']===0.0, 'Limits beginning in a later year remain inactive without unsigned date arithmetic errors.');
     program_call('sp_set_expense_limit_recurring',[$user,$limit,0,'2024-03-09']);
     program_assert((int)program_call('sp_get_expense_limits',[$user,'2024-03-10'])[0]['range_active']===0,'Stopped limits become inactive after their end date.');
     program_call('sp_set_expense_limit_recurring',[$user,$limit,1,'2024-03-10']);
@@ -159,10 +178,23 @@ try {
     $snapshot=$pdo->query('SELECT * FROM wallets ORDER BY id')->fetchAll();
     foreach (['views.sql','triggers.sql','procedures.sql'] as $file) {wallet_execute_sql_file($pdo,__DIR__.'/../database/'.$file);}
     program_assert($snapshot===$pdo->query('SELECT * FROM wallets ORDER BY id')->fetchAll(),'Reinstalling database programs does not recalculate balances.');
+    $pdo->beginTransaction();
+    program_reject(fn()=>program_call('sp_create_wallet',[$user,'Nested after reinstall','cash','0.00','PHP']), 'Reinstalled routines retain the engine-specific transaction guard.');
+    program_assert($pdo->inTransaction(), 'Reinstalled routines leave caller transactions open after rejection.');
+    $pdo->rollBack();
+
+    $tables=['users','wallets','transactions','savings_goals','savings_contributions','expense_limits'];
+    $demoSnapshot=[];
+    foreach ($tables as $table) { $demoSnapshot[$table]=$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(); }
+    wallet_execute_sql_file($pdo,__DIR__.'/../database/case_study_examples.sql');
+    program_assert(!$pdo->inTransaction(), 'The case-study SQL demonstration finishes its transaction.');
+    foreach ($tables as $table) {
+        program_assert($demoSnapshot[$table]===$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(), 'The case-study demonstration rolls back its changes to '.$table.'.');
+    }
 } finally {
     if($pdo->inTransaction()){$pdo->rollBack();}
     $pdo->exec('USE `'.str_replace('`','``',$original).'`');
     if(preg_match('/\Asmart_wallet_program_test_[a-f0-9]{12}\z/',$database)!==1){throw new RuntimeException('Unexpected test database name.');}
     $pdo->exec('DROP DATABASE IF EXISTS `'.$database.'`');
 }
-echo 'Database program tests passed ('.$assertions." assertions); disposable database removed.\n";
+echo 'Database program tests passed ('.$assertions.' assertions) on '.$serverVersion."; disposable database removed.\n";
