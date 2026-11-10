@@ -4,6 +4,21 @@ A vanilla PHP personal finance app for MySQL 8.0.16+ or XAMPP MariaDB 10.4+. Ser
 
 The connection also accepts `SMART_WALLET_DB_DSN`, `SMART_WALLET_DB_USER`, and `SMART_WALLET_DB_PASSWORD` environment variables. For example, a DSN of `mysql:host=127.0.0.1;port=3307;dbname=smart_wallet;charset=utf8mb4` selects a separate local MySQL server. Without overrides, the existing XAMPP connection settings apply.
 
+## Interface and styles
+
+All pages, including sign-in and registration, share a restrained light interface with teal accents, responsive navigation, consistent forms, and locally served styles. The dashboard uses the same application shell as the finance pages. On phones, the menu button opens the navigation drawer; Escape or the close button dismisses it.
+
+Use **Create goal** in Savings or **Add income** in Income to open the corresponding modal form. Editing an existing goal or income record opens its prefilled modal automatically. The dashboard's Add income shortcut opens the income modal directly.
+
+The compiled `assets/css/app.css` is included in the project, so XAMPP can serve the application without Node.js or an external CSS service. After changing Tailwind classes or the theme, rebuild it with:
+
+```text
+npm ci
+npm run build:css
+```
+
+In PowerShell, use `npm.cmd` if script execution policy blocks `npm`. Theme tokens are in `tailwind.config.cjs`, and shared layout/component styles are in `assets/css/ui.css`. Rebuild CSS after adding dynamically generated class names; use complete utility names in PHP and JavaScript so the compiler can find them.
+
 ## Database programs and case study
 
 The app uses 18 stored procedures, five views, and seven triggers. Procedures handle finance operations and reports; transaction triggers maintain wallet balances, and a savings trigger completes reached goals. PHP handles sessions, CSRF, password hashing, input feedback, and rendering.
@@ -48,7 +63,11 @@ The second migration copies category names into transactions and expense limits,
 
 Create an expense limit in **Expenses** to enable overspending alerts. Overview and Expenses show a warning whenever spending exceeds an active weekly, monthly, or yearly limit, including the exact amount over the limit. Categories and currencies are evaluated separately; income, archived wallets, and future-dated expenses do not count.
 
+On wide screens, the Expenses page keeps limits in a sidebar beside recent expenses. The sidebar stays visible as you scroll, with its own scrolling area for long lists of limits. On smaller screens, limits appear before recent expenses so a long transaction list cannot bury them.
+
 A toast appears the first time an overspend is detected in your session, when the excess increases, or when a resolved limit is exceeded again. The warning panel stays visible until spending is back within the limit or the limit is no longer active. Reaching the exact limit does not trigger an overspending alert.
+
+Dialogs share a centered layout with scrollable form content and fixed action buttons. Confirmations distinguish destructive actions and initially focus Cancel. Notifications use separate icons and colors for success, error, warning, and information. Success/info notifications close after six seconds and warnings/errors after eight; hovering or focusing a notification pauses its timer. Reduced-motion settings disable animation without shortening reading time.
 
 Select **Review limits** in the warning panel to open a modal with each exceeded limit's period, category, spending, and excess amount. **Edit limit** opens its edit form. Close the review with **Done**, the close button, Escape, or a click outside the modal.
 

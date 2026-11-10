@@ -146,120 +146,41 @@ $spendingAnalysis = $hasAccounts
     ? wallet_load_spending_analysis($pdo, $userId, $currency, $today->modify('first day of this month'), $today)
     : null;
 $activePage = 'overview';
-$flash = wallet_take_flash();
+$appTitle = 'Overview';
+require __DIR__ . '/includes/app_shell_start.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f6f8f6">
-    <title>Overview | Smart Wallet</title>
-    <link rel="stylesheet" href="assets/css/app-alert.css?v=<?= filemtime(__DIR__ . '/assets/css/app-alert.css') ?>">
-    <link rel="stylesheet" href="assets/css/app-dialog.css?v=<?= filemtime(__DIR__ . '/assets/css/app-dialog.css') ?>">
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body data-app-shell="true" class="min-h-screen bg-[#f6f8f6] font-sans text-slate-900 antialiased">
-<div id="app-content" class="min-h-screen lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
-    <aside class="hidden border-r border-slate-200/80 bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-20 lg:flex lg:w-[248px] lg:flex-col lg:overflow-y-auto">
-        <a href="index.php" class="flex items-center gap-3 px-6 py-6 text-lg font-semibold tracking-tight">
-            <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#102820] text-emerald-300">
-                <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 17.5 9.2 12l3.5 3.2L20 7.5M14.8 7.5H20v5.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </span>
-            Smart Wallet
-        </a>
-        <?php $navigationLayout = 'sidebar'; require __DIR__ . '/includes/main_navigation.php'; ?>
-        <div class="mt-auto border-t border-slate-100 p-4">
-            <div class="mb-4 truncate px-3 text-sm text-slate-500"><?= wallet_escape($name) ?></div>
-            <form method="post" action="logout.php">
-                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                <button type="submit" class="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900">
-                    Sign out
-                </button>
-            </form>
-        </div>
-    </aside>
-
-    <div class="min-w-0 lg:col-start-2">
-        <header class="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 backdrop-blur">
-            <div class="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 sm:px-8">
-                <div class="flex items-center gap-3">
-                    <a href="index.php" class="flex h-9 w-9 items-center justify-center rounded-xl bg-[#102820] text-emerald-300 lg:hidden" aria-label="Smart Wallet home">
-                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 17.5 9.2 12l3.5 3.2L20 7.5M14.8 7.5H20v5.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    </a>
-                    <div>
-                        <p class="text-sm font-semibold text-slate-900">Overview</p>
-                        <p class="hidden text-xs text-slate-500 sm:block">Your financial snapshot</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-3">
-                    <?php if (count($currencies) > 1): ?>
-                        <form method="get">
-                            <label for="currency" class="sr-only">Dashboard currency</label>
-                            <select id="currency" name="currency" onchange="this.form.submit()" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-emerald-600">
-                                <?php foreach ($currencies as $availableCurrency): ?>
-                                    <option value="<?= wallet_escape((string) $availableCurrency) ?>" <?= $availableCurrency === $currency ? 'selected' : '' ?>>
-                                        <?= wallet_escape((string) $availableCurrency) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </form>
-                    <?php endif; ?>
-                    <div class="hidden text-right sm:block">
-                        <p class="text-sm font-medium"><?= wallet_escape($firstName) ?></p>
-                        <p class="text-xs text-slate-500"><?= $today->format('l, F j') ?></p>
-                    </div>
-                    <form method="post" action="logout.php" class="lg:hidden">
-                        <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                        <button type="submit" class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Sign out</button>
-                    </form>
-                </div>
-            </div>
-        </header>
-        <?php $navigationLayout = 'mobile'; require __DIR__ . '/includes/main_navigation.php'; ?>
-
-        <main id="overview" tabindex="-1" class="mx-auto max-w-[1440px] space-y-7 px-5 py-8 outline-none sm:px-8 sm:py-10">
-            <?php if ($flash !== null): ?>
-                <div
-                    data-flash-message
-                    data-type="<?= wallet_escape((string) ($flash['type'] ?? 'info')) ?>"
-                    data-message="<?= wallet_escape((string) ($flash['message'] ?? '')) ?>"
-                    hidden
-                ></div>
-            <?php endif; ?>
-            <section class="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+            <section class="ui-page-heading flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
                 <div>
-                    <p class="text-sm font-medium text-emerald-800"><?= $today->format('l, F j, Y') ?></p>
-                    <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Good day, <?= wallet_escape($firstName) ?></h1>
-                    <p class="mt-2 text-sm text-slate-500">Here’s how your money is looking.</p>
+                    <p class="ui-eyebrow"><?= $today->format('l, F j, Y') ?></p>
+                    <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Overview</h1>
+                    <p class="mt-2 text-sm text-slate-500">Welcome back, <?= wallet_escape($firstName) ?>. Here is your financial picture.</p>
                 </div>
                 <?php if ($hasAccounts): ?>
-                    <span class="inline-flex w-fit items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                        <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-                        <?= wallet_escape($monthLabel) ?> overview
-                    </span>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a href="income.php?new=income" class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-medium text-slate-600">Add income</a>
+                        <a href="expenses.php?new=expense" class="inline-flex items-center gap-2 rounded-lg bg-[#123a2c] px-4 py-2.5 text-xs font-medium text-white"><span aria-hidden="true">+</span> Add expense</a>
+                    </div>
                 <?php endif; ?>
             </section>
 
             <?php require __DIR__ . '/includes/overspending_alerts.php'; ?>
 
             <?php if (!$hasAccounts): ?>
-                <section class="rounded-3xl bg-[#102820] px-7 py-9 text-white sm:px-10 sm:py-12">
+                <section class="rounded-2xl border border-slate-200 bg-white px-7 py-8 text-slate-900 sm:px-8">
                     <div class="max-w-2xl">
-                        <span class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-emerald-300">
+                        <span class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
                             <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M3 9h18m-14 6h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                         </span>
                         <h2 class="mt-5 text-2xl font-semibold tracking-tight">Your money overview starts with a wallet.</h2>
-                        <p class="mt-3 text-sm leading-6 text-slate-300">
+                        <p class="mt-3 text-sm leading-6 text-slate-500">
                             Your dashboard is ready. Once you create a wallet, you’ll see your balance, monthly activity, expense insights, and savings progress here.
                         </p>
+                        <a href="wallet.php" class="mt-5 inline-flex items-center gap-3 rounded-lg bg-[#123a2c] px-4 py-2.5 text-sm font-medium text-white">Create your first wallet <span aria-hidden="true">&rarr;</span></a>
                     </div>
                 </section>
                 <section class="grid gap-4 sm:grid-cols-3">
                     <?php foreach (['Total balance', 'Income this month', 'Expenses this month'] as $label): ?>
-                        <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30">
+                        <article class="ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
                             <p class="text-sm font-medium text-slate-500"><?= wallet_escape($label) ?></p>
                             <p class="mt-4 text-2xl font-semibold tracking-tight text-slate-300">—</p>
                             <p class="mt-2 text-xs text-slate-400">Create a wallet to see this summary</p>
@@ -268,40 +189,40 @@ $flash = wallet_take_flash();
                 </section>
             <?php else: ?>
                 <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Financial summary">
-                    <article class="rounded-2xl bg-[#123a2c] p-5 text-white shadow-sm sm:col-span-2 xl:col-span-1">
+                    <article class="ui-metric ui-metric-primary rounded-2xl bg-[#123a2c] p-5 text-white shadow-sm sm:col-span-2 xl:col-span-1">
                         <div class="flex items-center justify-between">
                             <p class="text-sm font-medium text-emerald-100">Total balance</p>
-                            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-emerald-200">
+                            <span class="ui-metric-icon flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-emerald-200">
                                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8.5h15a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2v-11a1 1 0 0 1 1-1h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M16 13.5h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                             </span>
                         </div>
                         <p class="mt-5 text-3xl font-semibold tracking-tight"><?= wallet_escape($formatMoney($balance)) ?></p>
                         <p class="mt-2 text-xs text-emerald-100/80">Across <?= count($accounts) ?> active <?= count($accounts) === 1 ? 'wallet' : 'wallets' ?></p>
                     </article>
-                    <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30">
+                    <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
                         <div class="flex items-center justify-between">
                             <p class="text-sm font-medium text-slate-500">Income this month</p>
-                            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                            <span class="ui-metric-icon flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
                                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </span>
                         </div>
                         <p class="mt-5 text-2xl font-semibold tracking-tight"><?= wallet_escape($formatMoney($monthlyIncome)) ?></p>
                         <p class="mt-2 text-xs text-slate-400">Since <?= wallet_escape($today->modify('first day of this month')->format('M j')) ?></p>
                     </article>
-                    <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30">
+                    <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
                         <div class="flex items-center justify-between">
                             <p class="text-sm font-medium text-slate-500">Expenses this month</p>
-                            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                            <span class="ui-metric-icon flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
                                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14m6-6-6 6-6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </span>
                         </div>
                         <p class="mt-5 text-2xl font-semibold tracking-tight"><?= wallet_escape($formatMoney($monthlyExpenses)) ?></p>
                         <p class="mt-2 text-xs text-slate-400">Across your active wallets</p>
                     </article>
-                    <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30">
+                    <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
                         <div class="flex items-center justify-between">
                             <p class="text-sm font-medium text-slate-500">Net cash flow</p>
-                            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
+                            <span class="ui-metric-icon flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
                                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 17.5 9.2 12l3.5 3.2L20 7.5M14.8 7.5H20v5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </span>
                         </div>
@@ -313,7 +234,7 @@ $flash = wallet_take_flash();
                 </section>
 
                 <section class="grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
-                    <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+                    <article class="ui-card rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
                         <div class="flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <h2 class="font-semibold tracking-tight">Cash flow</h2>
@@ -371,10 +292,10 @@ $flash = wallet_take_flash();
                         <?php endif; ?>
                     </article>
 
-                    <article id="wallet" class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+                    <article id="wallet" class="ui-card rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
                         <div class="flex items-center justify-between">
                             <div>
-                                <h2 class="font-semibold tracking-tight">Create wallet</h2>
+                                <h2 class="font-semibold tracking-tight">Wallets</h2>
                                 <p class="mt-1 text-sm text-slate-500">Your balances at a glance</p>
                             </div>
                             <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"><?= count($accounts) ?></span>
@@ -395,11 +316,12 @@ $flash = wallet_take_flash();
                                 </div>
                             <?php endforeach; ?>
                         </div>
+                    <a href="wallet.php" class="mt-6 inline-flex items-center gap-2 text-xs font-medium text-emerald-700">Manage wallets <span aria-hidden="true">&rarr;</span></a>
                     </article>
                 </section>
 
                 <section class="grid gap-6 xl:grid-cols-2">
-                    <article id="expenses" class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+                    <article id="expenses" class="ui-card rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
                         <div class="flex items-center justify-between">
                             <div>
                                 <h2 class="font-semibold tracking-tight">Expenses</h2>
@@ -432,7 +354,7 @@ $flash = wallet_take_flash();
                         <?php endif; ?>
                     </article>
 
-                    <article id="savings" class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+                    <article id="savings" class="ui-card rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
                         <div class="flex items-center justify-between">
                             <div>
                                 <h2 class="font-semibold tracking-tight">Savings</h2>
@@ -472,7 +394,7 @@ $flash = wallet_take_flash();
 
                 <?php require __DIR__ . '/includes/spending_summary.php'; ?>
 
-                <section class="rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/30">
+                <section class="ui-card rounded-2xl border border-slate-200/80 bg-white">
                     <div class="flex items-center justify-between border-b border-slate-100 px-5 py-5 sm:px-6">
                         <div>
                             <h2 class="font-semibold tracking-tight">Recent transactions</h2>
@@ -518,11 +440,4 @@ $flash = wallet_take_flash();
                     <?php endif; ?>
                 </section>
             <?php endif; ?>
-            <footer class="pb-4 text-center text-xs text-slate-400">&copy; <?= date('Y') ?> Smart Wallet</footer>
-        </main>
-    </div>
-</div>
-<script src="assets/js/app-alert.js?v=<?= filemtime(__DIR__ . '/assets/js/app-alert.js') ?>"></script>
-<script src="assets/js/app-navigation.js?v=<?= filemtime(__DIR__ . '/assets/js/app-navigation.js') ?>"></script>
-</body>
-</html>
+<?php require __DIR__ . '/includes/app_shell_end.php'; ?>

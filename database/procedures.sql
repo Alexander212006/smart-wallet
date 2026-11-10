@@ -103,7 +103,7 @@ BEGIN
         IF p_amount IS NULL OR p_amount=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Enter a nonzero transaction amount.'; END IF;
         IF p_category IS NULL OR CHAR_LENGTH(TRIM(p_category)) NOT BETWEEN 1 AND 80 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Choose a valid category.'; END IF;
         IF p_date IS NULL OR p_date<'1000-01-01' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Choose a valid transaction date.'; END IF;
-        IF p_expense_nature IS NOT NULL AND (p_amount>0 OR p_expense_nature NOT IN ('essential','non_essential')) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Choose a valid expense type.'; END IF;
+        IF p_expense_nature IS NOT NULL AND (p_amount>0 OR p_expense_nature NOT IN ('essential','non_essential')) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Choose a valid expense nature.'; END IF;
         IF p_transaction_id IS NOT NULL THEN
             SELECT id,amount INTO v_id,v_old_amount FROM transactions WHERE id=p_transaction_id AND user_id=p_user_id FOR UPDATE;
             IF v_missing OR v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='That transaction could not be found.'; END IF;

@@ -17,46 +17,19 @@
 
     const createActionConfirmation = () => {
         const dialog = document.createElement('dialog');
-        dialog.className = 'w-[calc(100%-2rem)] max-w-lg rounded-xl border border-slate-200 bg-white p-0 text-slate-950 shadow-2xl backdrop:bg-slate-950/50';
+        dialog.className = 'app-modal app-confirmation';
         dialog.setAttribute('aria-labelledby', 'app-confirmation-title');
         dialog.setAttribute('aria-describedby', 'app-confirmation-description');
         dialog.innerHTML = `
-            <style>
-                @keyframes app-confirmation-enter {
-                    from { opacity: 0; transform: translateY(0.5rem) scale(0.97); }
-                    to { opacity: 1; transform: translateY(0) scale(1); }
-                }
-                @keyframes app-confirmation-exit {
-                    from { opacity: 1; transform: translateY(0) scale(1); }
-                    to { opacity: 0; transform: translateY(0.5rem) scale(0.97); }
-                }
-                @keyframes app-confirmation-backdrop-enter {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-                @keyframes app-confirmation-backdrop-exit {
-                    from { opacity: 1; }
-                    to { opacity: 0; }
-                }
-                dialog[open] { animation: app-confirmation-enter 140ms ease-out both; }
-                dialog[open]::backdrop { animation: app-confirmation-backdrop-enter 140ms ease-out both; }
-                dialog[data-closing] { animation: app-confirmation-exit 120ms ease-in both; }
-                dialog[data-closing]::backdrop { animation: app-confirmation-backdrop-exit 120ms ease-in both; }
-                @media (prefers-reduced-motion: reduce) {
-                    dialog[open], dialog[open]::backdrop, dialog[data-closing], dialog[data-closing]::backdrop {
-                        animation-duration: 1ms;
-                    }
-                }
-            </style>
-            <div class="grid gap-4 p-6">
-                <div class="space-y-2">
-                    <h2 id="app-confirmation-title" class="text-lg font-semibold tracking-tight"></h2>
-                    <p id="app-confirmation-description" class="text-sm leading-6 text-slate-500"></p>
-                </div>
-                <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                    <button type="button" data-app-confirm-cancel class="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-sm font-medium transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">Cancel</button>
-                    <button type="button" data-app-confirm-submit class="inline-flex h-10 items-center justify-center rounded-md px-4 text-sm font-medium text-white transition focus-visible:outline-none focus-visible:ring-2">Confirm</button>
-                </div>
+            <div class="app-modal-header">
+                <span class="app-modal-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path data-confirm-icon-path stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <div class="app-modal-heading"><h2 id="app-confirmation-title"></h2></div>
+                <button type="button" data-app-confirm-close class="app-modal-close" aria-label="Close confirmation"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+            </div>
+            <p id="app-confirmation-description" class="app-modal-description"></p>
+            <div class="app-modal-footer">
+                <button type="button" data-app-confirm-cancel class="app-modal-button app-modal-secondary">Cancel</button>
+                <button type="button" data-app-confirm-submit class="app-modal-button app-modal-primary">Confirm</button>
             </div>
         `;
 
@@ -96,6 +69,12 @@
     actionConfirmationDialog.querySelector('[data-app-confirm-cancel]').addEventListener('click', () => {
         closeActionConfirmation('cancel');
     });
+    actionConfirmationDialog.querySelector('[data-app-confirm-close]').addEventListener('click', () => closeActionConfirmation('cancel'));
+    actionConfirmationDialog.addEventListener('click', (event) => {
+        if (event.target !== actionConfirmationDialog) return;
+        const bounds = actionConfirmationDialog.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeActionConfirmation('cancel');
+    });
     actionConfirmationSubmit.addEventListener('click', () => {
         closeActionConfirmation('confirm');
     });
@@ -108,12 +87,15 @@
         actionConfirmationTitle.textContent = title;
         actionConfirmationDescription.textContent = description;
         actionConfirmationSubmit.textContent = confirmLabel;
-        actionConfirmationSubmit.className = danger
-            ? 'inline-flex h-10 items-center justify-center rounded-md bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500'
-            : 'inline-flex h-10 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500';
+        actionConfirmationDialog.dataset.variant = danger ? 'danger' : 'confirm';
+        actionConfirmationDialog.querySelector('[data-confirm-icon-path]').setAttribute('d', danger
+            ? 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7'
+            : 'm5 12 4 4L19 6');
+        actionConfirmationSubmit.className = 'app-modal-button ' + (danger ? 'app-modal-danger' : 'app-modal-primary');
         resolveActionConfirmation = resolve;
         try {
             actionConfirmationDialog.showModal();
+            actionConfirmationDialog.querySelector('[data-app-confirm-cancel]').focus();
         } catch (error) {
             resolveActionConfirmation = undefined;
             console.error('Unable to open confirmation dialog:', error);
@@ -140,7 +122,7 @@
         });
     };
 
-    const closeExpenseDialog = (dialog) => {
+    const closeAppDialog = (dialog) => {
         if (!dialog.open || dialog.hasAttribute('data-closing')) {
             return;
         }
@@ -156,9 +138,9 @@
             return;
         }
 
-        const openButton = event.target.closest('[data-open-expense-dialog]');
+        const openButton = event.target.closest('[data-open-expense-dialog], [data-open-app-dialog]');
         if (openButton) {
-            const dialog = document.getElementById(`expense-modal-${openButton.dataset.openExpenseDialog}`);
+            const dialog = document.getElementById(openButton.dataset.openAppDialog || `expense-modal-${openButton.dataset.openExpenseDialog}`);
             if (dialog instanceof HTMLDialogElement && !dialog.open) {
                 dialog.showModal();
                 dialog.querySelector('input:not([type="hidden"]), select')?.focus({ preventScroll: true });
@@ -166,31 +148,26 @@
             return;
         }
 
-        const closeButton = event.target.closest('[data-close-expense-modal]');
+        const closeButton = event.target.closest('[data-close-expense-modal], [data-close-app-modal]');
         if (closeButton) {
-            const dialog = closeButton.closest('dialog[data-expense-modal]');
+            const dialog = closeButton.closest('dialog[data-expense-modal], dialog[data-app-modal]');
             if (dialog instanceof HTMLDialogElement) {
-                closeExpenseDialog(dialog);
+                closeAppDialog(dialog);
             }
         }
     });
 
-    const initializeExpenseDialogs = (root = document) => {
-        root.querySelectorAll('dialog[data-expense-modal]').forEach((dialog) => {
-            const main = document.querySelector('main');
-            const contentTop = main?.getBoundingClientRect().top ?? 0;
-            const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
-            const modalCenter = contentTop + (visibleHeight - contentTop) / 2;
-            dialog.style.setProperty('--expense-modal-top', `${modalCenter}px`);
-
+    const initializeAppDialogs = (root = document) => {
+        root.querySelectorAll('dialog[data-expense-modal], dialog[data-app-modal]').forEach((dialog) => {
             if (!dialog.hasAttribute('data-modal-initialized')) {
                 dialog.addEventListener('cancel', (event) => {
                     event.preventDefault();
-                    closeExpenseDialog(dialog);
+                    closeAppDialog(dialog);
                 });
                 dialog.addEventListener('click', (event) => {
-                    if (event.target === dialog) {
-                        closeExpenseDialog(dialog);
+                    const bounds = dialog.getBoundingClientRect();
+                    if (event.target === dialog && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) {
+                        closeAppDialog(dialog);
                     }
                 });
                 dialog.setAttribute('data-modal-initialized', '');
@@ -276,10 +253,9 @@
     };
 
     initializeCustomCategoryFields();
-    initializeExpenseDialogs();
+    initializeAppDialogs();
     initializeExpenseLimitRecurrenceControls();
     initializeActiveNavigation();
-    window.addEventListener('resize', () => initializeExpenseDialogs());
 
     const navigate = async (url, { method = 'GET', body, historyMode = 'push' } = {}) => {
         const currentRequestId = ++requestId;
@@ -330,19 +306,29 @@
             currentAppContent.replaceWith(nextAppContent);
             initializeFlashMessages(document);
             initializeCustomCategoryFields(document);
-            initializeExpenseDialogs(document);
+            initializeAppDialogs(document);
             initializeExpenseLimitRecurrenceControls(document);
             initializeActiveNavigation(document);
 
             const nextUrl = new URL(response.url);
+            const requestedUrl = new URL(url, window.location.href);
+            if (method === 'GET' && requestedUrl.hash && nextUrl.pathname === requestedUrl.pathname) {
+                nextUrl.hash = requestedUrl.hash;
+            }
             if (historyMode === 'push') {
                 window.history.pushState({}, '', nextUrl);
             } else if (historyMode === 'replace') {
                 window.history.replaceState({}, '', nextUrl);
             }
 
-            window.scrollTo(0, 0);
-            document.querySelector('main')?.focus({ preventScroll: true });
+            const anchor = nextUrl.hash ? document.getElementById(decodeURIComponent(nextUrl.hash.slice(1))) : null;
+            if (anchor) {
+                anchor.scrollIntoView({ block: 'start' });
+                (anchor.querySelector('input:not([type="hidden"]),select,textarea,button') || document.querySelector('main'))?.focus({ preventScroll: true });
+            } else {
+                window.scrollTo(0, 0);
+                document.querySelector('main')?.focus({ preventScroll: true });
+            }
 
             if (!response.ok) {
                 showError(`The request could not be completed (${response.status}).`);

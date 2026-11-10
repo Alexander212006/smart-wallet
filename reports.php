@@ -120,11 +120,10 @@ $appTitle = 'Financial Reports';
 $activePage = 'reports';
 require __DIR__ . '/includes/app_shell_start.php';
 ?>
-<section class="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
+<section class="ui-page-heading flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
     <div>
-        <p class="text-sm font-medium text-emerald-800">Review your financial position</p>
         <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Financial Reports</h1>
-        <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Generate accurate weekly, monthly, and yearly cash-flow reports, budget insights, and period comparisons.</p>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500">A closer look at your cash flow, budgets, and progress over time.</p>
     </div>
     <?php if ($report !== null): ?>
         <div class="flex flex-wrap gap-2">
@@ -144,7 +143,7 @@ require __DIR__ . '/includes/app_shell_start.php';
     </section>
 <?php endif; ?>
 
-<section class="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5" aria-labelledby="report-filters-title">
+<section class="ui-card rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5" aria-labelledby="report-filters-title">
     <div class="flex flex-col gap-5">
         <div>
             <h2 id="report-filters-title" class="text-sm font-semibold text-slate-900">Report period</h2>
@@ -210,22 +209,22 @@ require __DIR__ . '/includes/app_shell_start.php';
     </section>
 
     <section aria-label="Financial summary" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article class="rounded-2xl bg-[#102820] p-5 text-white">
+        <article class="ui-metric ui-metric-primary rounded-2xl bg-[#102820] p-5 text-white">
             <p class="text-sm text-emerald-100/80">Total income</p>
             <p class="mt-4 break-words text-2xl font-semibold tracking-tight"><?= wallet_escape($money($summary['income_cents'])) ?></p>
-            <p class="mt-2 text-xs text-emerald-100/70">Positive transactions in this period</p>
+            <p class="mt-2 text-xs text-emerald-100/70">Income received in this period</p>
         </article>
-        <article class="rounded-2xl border border-slate-200/80 bg-white p-5">
+        <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
             <p class="text-sm text-slate-500">Total expenses</p>
             <p class="mt-4 break-words text-2xl font-semibold tracking-tight text-rose-600"><?= wallet_escape($money($summary['expense_cents'])) ?></p>
-            <p class="mt-2 text-xs text-slate-500">Absolute value of negative transactions</p>
+            <p class="mt-2 text-xs text-slate-500">Spending in this period</p>
         </article>
-        <article class="rounded-2xl border border-slate-200/80 bg-white p-5">
-            <p class="text-sm text-slate-500">Transaction-derived net savings</p>
+        <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
+            <p class="text-sm text-slate-500">Net savings</p>
             <p class="mt-4 break-words text-2xl font-semibold tracking-tight <?= $summary['net_cents'] < 0 ? 'text-rose-600' : 'text-emerald-700' ?>"><?= wallet_escape($money($summary['net_cents'])) ?></p>
-            <p class="mt-2 text-xs text-slate-500">Income minus expenses; not goal contributions</p>
+            <p class="mt-2 text-xs text-slate-500">Income minus expenses</p>
         </article>
-        <article class="rounded-2xl border border-slate-200/80 bg-white p-5">
+        <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
             <p class="text-sm text-slate-500">Savings rate</p>
             <p class="mt-4 text-2xl font-semibold tracking-tight <?= $summary['savings_rate'] !== null && $summary['savings_rate'] < 0 ? 'text-rose-600' : 'text-emerald-700' ?>"><?= $summary['savings_rate'] === null ? 'N/A' : number_format($summary['savings_rate'], 1) . '%' ?></p>
             <p class="mt-2 text-xs text-slate-500"><?= $summary['savings_rate'] === null ? 'No income baseline for this period' : 'Net savings divided by income' ?></p>

@@ -473,7 +473,7 @@ try {
     $expensesWithLimits = workflow_request($client, 'expenses.php');
     $expensesWeekly = workflow_text(
         $expensesWithLimits['body'],
-        '//section[@id="expense-limits"]/article[.//h2[normalize-space(.)="Weekly warning"]]'
+        '//section[@id="expense-limits"]//article[.//h2[normalize-space(.)="Weekly warning"]]'
     );
     foreach ([$overviewWeekly, $expensesWeekly] as $weeklyText) {
         workflow_assert(str_contains($weeklyText, $categoryName)

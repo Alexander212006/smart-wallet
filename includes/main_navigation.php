@@ -4,34 +4,24 @@ declare(strict_types=1);
 
 $navigationItems = [
     'overview' => ['label' => 'Overview', 'url' => 'index.php', 'icon' => 'overview'],
-    'accounts' => ['label' => 'Create wallet', 'url' => 'wallet.php', 'icon' => 'accounts'],
-    'expenses' => ['label' => 'Expenses', 'url' => 'expenses.php', 'icon' => 'expenses'],
-    'spending' => ['label' => 'Spending analysis', 'url' => 'spending.php', 'icon' => 'spending'],
-    'reports' => ['label' => 'Financial Reports', 'url' => 'reports.php', 'icon' => 'reports'],
-    'savings' => ['label' => 'Savings', 'url' => 'savings.php', 'icon' => 'goals'],
+    'accounts' => ['label' => 'Wallets', 'url' => 'wallet.php', 'icon' => 'accounts'],
     'income' => ['label' => 'Income', 'url' => 'income.php', 'icon' => 'income'],
+    'expenses' => ['label' => 'Expenses', 'url' => 'expenses.php', 'icon' => 'expenses'],
+    'savings' => ['label' => 'Savings', 'url' => 'savings.php', 'icon' => 'goals'],
+    'spending' => ['label' => 'Spending analysis', 'url' => 'spending.php', 'icon' => 'spending'],
+    'reports' => ['label' => 'Reports', 'url' => 'reports.php', 'icon' => 'reports'],
 ];
 $navigationLayout = $navigationLayout ?? 'sidebar';
-$navigationClasses = $navigationLayout === 'mobile'
-    ? 'flex gap-2 overflow-x-auto border-b border-slate-200/80 bg-white px-5 py-2 lg:hidden'
-    : 'mt-8 space-y-1 px-4';
-$navigationLinkClasses = $navigationLayout === 'mobile'
-    ? 'flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium'
-    : 'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition';
 ?>
-<nav class="<?= wallet_escape($navigationClasses) ?>" aria-label="Main navigation">
+<nav class="ui-nav" aria-label="Main navigation">
+    <p class="ui-nav-label">Workspace</p>
     <?php foreach ($navigationItems as $page => $item): ?>
         <?php
         $isActive = $activePage === $page;
-        $stateClasses = $isActive
-            ? 'bg-emerald-50 font-semibold text-emerald-900'
-            : ($navigationLayout === 'mobile'
-                ? 'text-slate-500 hover:bg-slate-50'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900');
         ?>
+        <?php if ($page === 'spending'): ?><p class="ui-nav-label mt-8">Insights</p><?php endif; ?>
         <a
             href="<?= wallet_escape($item['url']) ?>"
-            class="<?= wallet_escape($navigationLinkClasses . ' ' . $stateClasses) ?>"
             <?= $isActive ? 'aria-current="page"' : '' ?>
         >
             <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">

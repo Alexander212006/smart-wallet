@@ -164,11 +164,10 @@ $appTitle = 'Expenses';
 $activePage = 'expenses';
 require __DIR__ . '/includes/app_shell_start.php';
 ?>
-<section class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+<section class="ui-page-heading flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
     <div>
-        <p class="text-sm font-medium text-emerald-800">Stay in control</p>
         <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Expenses</h1>
-        <p class="mt-2 text-sm text-slate-500">Record expenses to a wallet and manage limits for each period.</p>
+        <p class="mt-2 text-sm text-slate-500">Keep everyday spending in view and your budgets on track.</p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
         <?php if ($activeAccounts !== []): ?>
@@ -187,28 +186,97 @@ require __DIR__ . '/includes/app_shell_start.php';
 <?php require __DIR__ . '/includes/overspending_alerts.php'; ?>
 
 <?php if ($currencies === []): ?>
-    <section class="rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
+    <section class="ui-card rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
         <h2 class="font-semibold">Create your wallet first</h2>
         <p class="mt-2 text-sm text-slate-500">Expense limits use your wallet currencies so totals stay accurate.</p>
-        <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Go to Create wallet</a>
+        <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Create a wallet</a>
     </section>
 <?php else: ?>
+    <div class="ui-expenses-layout">
+    <?php if ($currencies !== []): ?>
+    <section id="expense-limits" aria-labelledby="expense-limits-title" class="ui-expense-limits">
+        <div class="ui-expense-section-heading">
+            <div>
+                <h2 id="expense-limits-title" class="font-semibold tracking-tight">Expense limits</h2>
+                <p class="mt-1 text-sm text-slate-500">Your budgets, always in view.</p>
+            </div>
+            <span class="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"><?= count($budgets) ?> <?= count($budgets) === 1 ? 'limit' : 'limits' ?></span>
+        </div>
+        <div class="ui-expense-limit-list">
+            <?php if ($budgets === []): ?>
+                <div class="ui-card rounded-2xl border border-slate-200/80 bg-white px-5 py-10 text-center shadow-sm">
+                    <h2 class="font-semibold">No expense limits yet</h2>
+                    <p class="mt-2 text-sm text-slate-500">Create an expense limit to set a helpful boundary for your expenses.</p>
+                </div>
+            <?php endif; ?>
+            <?php foreach ($budgets as $budget): ?>
+                <article class="ui-expense-limit-card ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
+                    <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                        <div>
+                            <h2 class="font-semibold"><?= wallet_escape((string) $budget['name']) ?></h2>
+                            <p class="mt-1 text-sm text-slate-500"><?= wallet_escape((string) $budget['category_name']) ?> · <?= wallet_escape(ucfirst((string) $budget['period'])) ?></p>
+                            <p class="mt-1 text-xs text-slate-400">
+                                <?= (bool) $budget['is_recurring'] ? 'Repeats ' : 'One-time ' ?><?= wallet_escape((string) $budget['period']) ?>
+                                · Starts <?= wallet_escape((string) $budget['start_date']) ?>
+                                <?= $budget['end_date'] !== null
+                                    ? ((bool) $budget['is_recurring'] ? ' · Stopped ' : ' · Ends ') . wallet_escape((string) $budget['end_date'])
+                                    : '' ?>
+                                <?= !$budget['range_active'] ? ' · Not currently active' : '' ?>
+                            </p>
+                        </div>
+
+                    </div>
+                    <div class="mt-5 flex items-center justify-between gap-3 text-sm">
+                        <span class="<?= $budget['is_over'] ? 'font-semibold text-rose-600' : 'font-medium text-slate-700' ?>"><?= wallet_escape(wallet_expense_limit_money($budget, $budget['spent_cents'])) ?> spent</span>
+                        <span class="text-slate-500">of <?= wallet_escape(wallet_expense_limit_money($budget, $budget['limit_cents'])) ?></span>
+                    </div>
+                    <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full <?= $budget['is_over'] ? 'bg-rose-500' : 'bg-emerald-500' ?>" style="width: <?= $budget['progress_percent'] ?>%"></div>
+                    </div>
+                    <p class="mt-2 text-xs <?= $budget['is_over'] ? 'font-medium text-rose-600' : 'text-slate-400' ?>"><?= wallet_escape(wallet_expense_limit_status($budget)) ?><?= $budget['is_over'] ? '' : ' · ' . $budget['progress_percent'] . '% used' ?></p>
+                        <div class="ui-expense-limit-actions">
+                            <a href="expenses.php?edit=<?= (int) $budget['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
+                            <?php if ((bool) $budget['is_recurring']): ?>
+                                <form method="post" action="expenses.php"
+                                    <?= $budget['end_date'] === null
+                                        ? 'data-confirm-title="Stop this recurring expense limit?" data-confirm-description="It will stop recurring after today. You can resume it later." data-confirm-label="Stop recurring" data-confirm-variant="danger"'
+                                        : 'data-confirm-title="Resume this recurring expense limit?" data-confirm-description="It will start recurring again from its original schedule." data-confirm-label="Resume recurring"' ?>>
+                                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                    <input type="hidden" name="action" value="<?= $budget['end_date'] === null ? 'stop_recurring' : 'resume_recurring' ?>">
+                                    <input type="hidden" name="budget_id" value="<?= (int) $budget['id'] ?>">
+                                    <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium <?= $budget['end_date'] === null ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50' ?>">
+                                        <?= $budget['end_date'] === null ? 'Stop recurring' : 'Resume' ?>
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                            <form method="post" action="expenses.php" data-confirm-title="Delete this expense limit?" data-confirm-description="This limit will be permanently removed." data-confirm-label="Delete limit" data-confirm-variant="danger">
+                                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="budget_id" value="<?= (int) $budget['id'] ?>">
+                                <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50">Delete</button>
+                            </form>
+                        </div>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    </section>
+    <?php endif; ?>
     <?php if ($activeAccounts === []): ?>
-        <section class="rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
+        <section class="ui-expense-history ui-card rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
             <h2 class="font-semibold">Create an active wallet to add expenses</h2>
             <p class="mt-2 text-sm text-slate-500">Expenses are recorded directly to a wallet, so archived wallets cannot be selected.</p>
-            <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Go to Create wallet</a>
+            <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Create a wallet</a>
         </section>
     <?php else: ?>
-            <section class="space-y-4">
-                <div>
-                    <h2 class="font-semibold tracking-tight">Recent expenses</h2>
-                    <div class="mt-1 flex items-center justify-between gap-4">
-                        <p class="text-sm text-slate-500">Expenses are grouped by the wallet they affect.</p>
-                        <span class="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"><?= count($expenseEntries) ?> expenses</span>
+            <section id="recent-expenses" aria-labelledby="recent-expenses-title" class="ui-expense-history space-y-4">
+                <div class="ui-expense-section-heading">
+                    <div>
+                        <h2 id="recent-expenses-title" class="font-semibold tracking-tight">Recent expenses</h2>
+                        <p class="mt-1 text-sm text-slate-500">Your latest spending across all wallets.</p>
                     </div>
+                    <span class="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"><?= count($expenseEntries) ?> expenses</span>
                 </div>
-                <div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/30">
+                <div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white ui-card">
                     <?php if ($expenseEntries === []): ?>
                     <div class="px-5 py-10 text-center">
                         <h3 class="font-semibold">No expenses recorded yet</h3>
@@ -248,142 +316,87 @@ require __DIR__ . '/includes/app_shell_start.php';
                 </div>
         </section>
     <?php endif; ?>
-
-    <?php if ($currencies !== []): ?>
-    <section id="expense-limits" class="space-y-4">
-        <div class="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-            <div>
-                <h2 class="font-semibold tracking-tight">Expense limits</h2>
-                <p class="mt-1 text-sm text-slate-500">Set a target and track expenses over time.</p>
-            </div>
-            <span class="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"><?= count($budgets) ?> limits</span>
-        </div>
-            <?php if ($budgets === []): ?>
-                <div class="rounded-2xl border border-slate-200/80 bg-white px-5 py-10 text-center shadow-sm">
-                    <h2 class="font-semibold">No expense limits yet</h2>
-                    <p class="mt-2 text-sm text-slate-500">Create an expense limit to set a helpful boundary for your expenses.</p>
-                </div>
-            <?php endif; ?>
-            <?php foreach ($budgets as $budget): ?>
-                <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
-                    <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                        <div>
-                            <h2 class="font-semibold"><?= wallet_escape((string) $budget['name']) ?></h2>
-                            <p class="mt-1 text-sm text-slate-500"><?= wallet_escape((string) $budget['category_name']) ?> · <?= wallet_escape(ucfirst((string) $budget['period'])) ?></p>
-                            <p class="mt-1 text-xs text-slate-400">
-                                <?= (bool) $budget['is_recurring'] ? 'Repeats ' : 'One-time ' ?><?= wallet_escape((string) $budget['period']) ?>
-                                · Starts <?= wallet_escape((string) $budget['start_date']) ?>
-                                <?= $budget['end_date'] !== null
-                                    ? ((bool) $budget['is_recurring'] ? ' · Stopped ' : ' · Ends ') . wallet_escape((string) $budget['end_date'])
-                                    : '' ?>
-                                <?= !$budget['range_active'] ? ' · Not currently active' : '' ?>
-                            </p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <a href="expenses.php?edit=<?= (int) $budget['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
-                            <?php if ((bool) $budget['is_recurring']): ?>
-                                <form method="post" action="expenses.php"
-                                    <?= $budget['end_date'] === null
-                                        ? 'data-confirm-title="Stop this recurring expense limit?" data-confirm-description="It will stop recurring after today. You can resume it later." data-confirm-label="Stop recurring" data-confirm-variant="danger"'
-                                        : 'data-confirm-title="Resume this recurring expense limit?" data-confirm-description="It will start recurring again from its original schedule." data-confirm-label="Resume recurring"' ?>>
-                                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                                    <input type="hidden" name="action" value="<?= $budget['end_date'] === null ? 'stop_recurring' : 'resume_recurring' ?>">
-                                    <input type="hidden" name="budget_id" value="<?= (int) $budget['id'] ?>">
-                                    <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium <?= $budget['end_date'] === null ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50' ?>">
-                                        <?= $budget['end_date'] === null ? 'Stop recurring' : 'Resume' ?>
-                                    </button>
-                                </form>
-                            <?php endif; ?>
-                            <form method="post" action="expenses.php" data-confirm-title="Delete this expense limit?" data-confirm-description="This limit will be permanently removed." data-confirm-label="Delete limit" data-confirm-variant="danger">
-                                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                                <input type="hidden" name="action" value="delete">
-                                <input type="hidden" name="budget_id" value="<?= (int) $budget['id'] ?>">
-                                <button type="submit" class="rounded-lg px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                    <div class="mt-5 flex items-center justify-between gap-3 text-sm">
-                        <span class="<?= $budget['is_over'] ? 'font-semibold text-rose-600' : 'font-medium text-slate-700' ?>"><?= wallet_escape(wallet_expense_limit_money($budget, $budget['spent_cents'])) ?> spent</span>
-                        <span class="text-slate-500">of <?= wallet_escape(wallet_expense_limit_money($budget, $budget['limit_cents'])) ?></span>
-                    </div>
-                    <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
-                        <div class="h-full rounded-full <?= $budget['is_over'] ? 'bg-rose-500' : 'bg-emerald-500' ?>" style="width: <?= $budget['progress_percent'] ?>%"></div>
-                    </div>
-                    <p class="mt-2 text-xs <?= $budget['is_over'] ? 'font-medium text-rose-600' : 'text-slate-400' ?>"><?= wallet_escape(wallet_expense_limit_status($budget)) ?><?= $budget['is_over'] ? '' : ' · ' . $budget['progress_percent'] . '% used' ?></p>
-                </article>
-            <?php endforeach; ?>
-    </section>
-    <?php endif; ?>
+    </div>
 <?php endif; ?>
     <?php if ($activeAccounts !== []): ?>
-        <dialog id="expense-modal-expense" data-expense-modal <?= $editExpense !== null ? 'data-open-on-load' : '' ?> aria-labelledby="expense-modal-expense-title" class="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/40">
-            <div class="p-5 sm:p-6">
-                <div class="mb-5 flex items-start justify-between gap-4">
-                    <div>
+        <dialog id="expense-modal-expense" data-expense-modal <?= $editExpense !== null || ($_GET['new'] ?? '') === 'expense' ? 'data-open-on-load' : '' ?> aria-labelledby="expense-modal-expense-title" class="app-modal">
+            <div class="app-modal-content">
+                <div class="app-modal-header">
+                    <span class="app-modal-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M7 3h10v18l-2.5-2-2.5 2-2.5-2L7 21V3ZM10 7h4m-4 4h4m-4 4h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <div class="app-modal-heading">
                         <h2 id="expense-modal-expense-title" class="text-lg font-semibold tracking-tight"><?= $editExpense !== null ? 'Edit expense' : 'Add expense' ?></h2>
                         <p class="mt-1 text-sm text-slate-500">Choose which wallet this expense should affect.</p>
                     </div>
-                    <button type="button" data-close-expense-modal aria-label="Close dialog" class="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">×</button>
+                    <button type="button" data-close-expense-modal aria-label="Close dialog" class="app-modal-close"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
                 </div>
-                <form method="post" action="expenses.php" class="space-y-4" <?= $editExpense === null ? 'data-confirm-title="Add this expense?" data-confirm-description="This expense will be recorded in the selected wallet." data-confirm-label="Add expense"' : '' ?>>
-                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                    <input type="hidden" name="action" value="<?= $editExpense !== null ? 'update_expense' : 'add_expense' ?>">
-                    <?php if ($editExpense !== null): ?><input type="hidden" name="expense_id" value="<?= (int) $editExpense['id'] ?>"><?php endif; ?>
-                    <div>
-                        <label for="expense_account_id" class="mb-1.5 block text-sm font-medium text-slate-700">Wallet</label>
-                        <select id="expense_account_id" name="account_id" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                            <?php foreach ($activeAccounts as $account): ?>
-                                <option value="<?= (int) $account['id'] ?>" <?= (int) ($editExpense['account_id'] ?? 0) === (int) $account['id'] ? 'selected' : '' ?>>
-                                    <?= wallet_escape((string) $account['name']) ?> (<?= wallet_escape((string) $account['currency_code']) ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="expense_amount" class="mb-1.5 block text-sm font-medium text-slate-700">Amount</label>
-                        <input id="expense_amount" name="expense_amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editExpense['amount'] ?? '')) ?>" placeholder="0.00" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                    </div>
-                    <div class="space-y-3" data-category-control>
+                <form method="post" action="expenses.php" class="app-modal-form" <?= $editExpense === null ? 'data-confirm-title="Add this expense?" data-confirm-description="This expense will be recorded in the selected wallet." data-confirm-label="Add expense"' : '' ?>>
+                    <div class="app-modal-body">
+                        <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                        <input type="hidden" name="action" value="<?= $editExpense !== null ? 'update_expense' : 'add_expense' ?>">
+                        <?php if ($editExpense !== null): ?><input type="hidden" name="expense_id" value="<?= (int) $editExpense['id'] ?>"><?php endif; ?>
                         <div>
-                            <label for="expense_category" class="mb-1.5 block text-sm font-medium text-slate-700">Category</label>
-                            <select id="expense_category" name="expense_category" required data-custom-category-select class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                                <option value="" disabled <?= ($editExpense['category'] ?? '') === '' ? 'selected' : '' ?>>Select a category</option>
-                                <?php foreach ($defaultCategories as $categoryName): ?>
-                                    <?php if (!in_array(strtolower($categoryName), $existingCategoryNames, true)): ?>
-                                        <option value="category:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
-                                    <?php endif; ?>
+                            <label for="expense_account_id" class="mb-1.5 block text-sm font-medium text-slate-700">Wallet</label>
+                            <select id="expense_account_id" name="account_id" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                                <?php foreach ($activeAccounts as $account): ?>
+                                    <option value="<?= (int) $account['id'] ?>" <?= (int) ($editExpense['account_id'] ?? 0) === (int) $account['id'] ? 'selected' : '' ?>>
+                                        <?= wallet_escape((string) $account['name']) ?> (<?= wallet_escape((string) $account['currency_code']) ?>)
+                                    </option>
                                 <?php endforeach; ?>
-                                <?php foreach ($categories as $category): ?>
-                                    <option value="category:<?= wallet_escape($category) ?>" <?= ($editExpense['category'] ?? '') === $category ? 'selected' : '' ?>><?= wallet_escape($category) ?></option>
-                                <?php endforeach; ?>
-                                <option value="other">Other (enter a category)</option>
                             </select>
                         </div>
-                        <div data-custom-category-field class="hidden">
-                            <label for="expense_custom_category" class="mb-1.5 block text-sm font-medium text-slate-700">Category name</label>
-                            <input id="expense_custom_category" name="custom_category" type="text" maxlength="80" data-custom-category-input placeholder="e.g. Pet care" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                        <div class="app-form-grid">
+                            <div>
+                                <label for="expense_amount" class="mb-1.5 block text-sm font-medium text-slate-700">Amount</label>
+                                <input id="expense_amount" name="expense_amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editExpense['amount'] ?? '')) ?>" placeholder="0.00" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                            <div>
+                                <label for="expense_date" class="mb-1.5 block text-sm font-medium text-slate-700">Date</label>
+                                <input id="expense_date" name="expense_date" type="date" required value="<?= wallet_escape((string) ($editExpense['expense_date'] ?? $today->format('Y-m-d'))) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                        </div>
+                        <div class="space-y-3" data-category-control>
+                            <div>
+                                <label for="expense_category" class="mb-1.5 block text-sm font-medium text-slate-700">Category</label>
+                                <select id="expense_category" name="expense_category" required data-custom-category-select class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                                    <option value="" disabled <?= ($editExpense['category'] ?? '') === '' ? 'selected' : '' ?>>Select a category</option>
+                                    <?php foreach ($defaultCategories as $categoryName): ?>
+                                        <?php if (!in_array(strtolower($categoryName), $existingCategoryNames, true)): ?>
+                                            <option value="category:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                    <?php foreach ($categories as $category): ?>
+                                        <option value="category:<?= wallet_escape($category) ?>" <?= ($editExpense['category'] ?? '') === $category ? 'selected' : '' ?>><?= wallet_escape($category) ?></option>
+                                    <?php endforeach; ?>
+                                    <option value="other">Other (enter a category)</option>
+                                </select>
+                            </div>
+                            <div data-custom-category-field class="hidden">
+                                <label for="expense_custom_category" class="mb-1.5 block text-sm font-medium text-slate-700">Category name</label>
+                                <input id="expense_custom_category" name="custom_category" type="text" maxlength="80" data-custom-category-input placeholder="e.g. Pet care" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="expense_nature" class="mb-1.5 block text-sm font-medium text-slate-700">Expense type <span class="font-normal text-slate-400">optional</span></label>
+                            <select id="expense_nature" name="expense_nature" aria-describedby="expense_nature_help" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                                <?php foreach ($expenseNatureOptions as $value => $label): ?>
+                                    <option value="<?= wallet_escape($value) ?>" <?= ($editExpense['expense_nature'] ?? '') === $value ? 'selected' : '' ?>><?= wallet_escape($label) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p id="expense_nature_help" class="mt-1.5 text-xs text-slate-500">Choose whether this expense is essential for you, or leave it unclassified.</p>
+                        </div>
+
+                        <div>
+                            <label for="expense_description" class="mb-1.5 block text-sm font-medium text-slate-700">Description <span class="font-normal text-slate-400">optional</span></label>
+                            <input id="expense_description" name="expense_description" type="text" maxlength="255" value="<?= wallet_escape((string) ($editExpense['description'] ?? '')) ?>" placeholder="Groceries, transport..." class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
                         </div>
                     </div>
-                    <div>
-                        <label for="expense_nature" class="mb-1.5 block text-sm font-medium text-slate-700">Expense type <span class="font-normal text-slate-400">optional</span></label>
-                        <select id="expense_nature" name="expense_nature" aria-describedby="expense_nature_help" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                            <?php foreach ($expenseNatureOptions as $value => $label): ?>
-                                <option value="<?= wallet_escape($value) ?>" <?= ($editExpense['expense_nature'] ?? '') === $value ? 'selected' : '' ?>><?= wallet_escape($label) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <p id="expense_nature_help" class="mt-1.5 text-xs text-slate-500">Choose whether this expense is essential for you, or leave it unclassified.</p>
-                    </div>
-                    <div>
-                        <label for="expense_date" class="mb-1.5 block text-sm font-medium text-slate-700">Date</label>
-                        <input id="expense_date" name="expense_date" type="date" required value="<?= wallet_escape((string) ($editExpense['expense_date'] ?? $today->format('Y-m-d'))) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                    </div>
-                    <div>
-                        <label for="expense_description" class="mb-1.5 block text-sm font-medium text-slate-700">Description <span class="font-normal text-slate-400">optional</span></label>
-                        <input id="expense_description" name="expense_description" type="text" maxlength="255" value="<?= wallet_escape((string) ($editExpense['description'] ?? '')) ?>" placeholder="Groceries, transport..." class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                    </div>
-                    <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
-                        <button type="button" data-close-expense-modal class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
-                        <button type="submit" class="rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d3024]">
+                    <div class="app-modal-footer">
+                        <?php if ($editExpense !== null): ?>
+                            <a href="expenses.php" class="app-modal-button app-modal-secondary">Cancel</a>
+                        <?php else: ?>
+                            <button type="button" data-close-expense-modal class="app-modal-button app-modal-secondary">Cancel</button>
+                        <?php endif; ?>
+                        <button type="submit" class="app-modal-button app-modal-primary">
                             <?= $editExpense !== null ? 'Save changes' : 'Add expense' ?>
                         </button>
                     </div>
@@ -392,85 +405,91 @@ require __DIR__ . '/includes/app_shell_start.php';
         </dialog>
     <?php endif; ?>
     <?php if ($currencies !== []): ?>
-        <dialog id="expense-modal-limit" data-expense-modal <?= $editBudget !== null ? 'data-open-on-load' : '' ?> aria-labelledby="expense-modal-limit-title" class="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/40">
-            <div class="p-5 sm:p-6">
-                <div class="mb-5 flex items-start justify-between gap-4">
-                    <div>
+        <dialog id="expense-modal-limit" data-expense-modal <?= $editBudget !== null ? 'data-open-on-load' : '' ?> aria-labelledby="expense-modal-limit-title" class="app-modal">
+            <div class="app-modal-content">
+                <div class="app-modal-header">
+                    <span class="app-modal-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                    <div class="app-modal-heading">
                         <h2 id="expense-modal-limit-title" class="text-lg font-semibold tracking-tight"><?= $editBudget !== null ? 'Edit expense limit' : 'Create expense limit' ?></h2>
                         <p class="mt-1 text-sm text-slate-500">Choose a period, amount, and optional expense category.</p>
                     </div>
-                    <button type="button" data-close-expense-modal aria-label="Close dialog" class="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">×</button>
+                    <button type="button" data-close-expense-modal aria-label="Close dialog" class="app-modal-close"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
                 </div>
-                <form method="post" action="expenses.php" class="space-y-4" <?= $editBudget === null ? 'data-confirm-title="Create this expense limit?" data-confirm-description="The limit will be added to your expense tracker." data-confirm-label="Create limit"' : '' ?>>
-                    <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                    <input type="hidden" name="action" value="<?= $editBudget !== null ? 'update' : 'create' ?>">
-                    <?php if ($editBudget !== null): ?><input type="hidden" name="budget_id" value="<?= (int) $editBudget['id'] ?>"><?php endif; ?>
-                    <div>
-                        <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700">Expense limit name</label>
-                        <input id="name" name="name" maxlength="120" required value="<?= wallet_escape((string) ($editBudget['name'] ?? '')) ?>" placeholder="Monthly essentials" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                    </div>
-                    <div class="grid gap-4 sm:grid-cols-2">
+                <form method="post" action="expenses.php" class="app-modal-form" <?= $editBudget === null ? 'data-confirm-title="Create this expense limit?" data-confirm-description="The limit will be added to your expense tracker." data-confirm-label="Create limit"' : '' ?>>
+                    <div class="app-modal-body">
+                        <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                        <input type="hidden" name="action" value="<?= $editBudget !== null ? 'update' : 'create' ?>">
+                        <?php if ($editBudget !== null): ?><input type="hidden" name="budget_id" value="<?= (int) $editBudget['id'] ?>"><?php endif; ?>
                         <div>
-                            <label for="amount" class="mb-1.5 block text-sm font-medium text-slate-700">Limit amount</label>
-                            <input id="amount" name="amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editBudget['amount'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700">Expense limit name</label>
+                            <input id="name" name="name" maxlength="120" required value="<?= wallet_escape((string) ($editBudget['name'] ?? '')) ?>" placeholder="Monthly essentials" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                        </div>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label for="amount" class="mb-1.5 block text-sm font-medium text-slate-700">Limit amount</label>
+                                <input id="amount" name="amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editBudget['amount'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                            <div>
+                                <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency</label>
+                                <select id="currency_code" name="currency_code" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                                    <?php foreach ($currencies as $currency): ?>
+                                        <option value="<?= wallet_escape((string) $currency) ?>" <?= ($editBudget['currency_code'] ?? $currencies[0]) === $currency ? 'selected' : '' ?>><?= wallet_escape((string) $currency) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                         </div>
                         <div>
-                            <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency</label>
-                            <select id="currency_code" name="currency_code" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                                <?php foreach ($currencies as $currency): ?>
-                                    <option value="<?= wallet_escape((string) $currency) ?>" <?= ($editBudget['currency_code'] ?? $currencies[0]) === $currency ? 'selected' : '' ?>><?= wallet_escape((string) $currency) ?></option>
+                            <label for="category" class="mb-1.5 block text-sm font-medium text-slate-700">Expense category</label>
+                            <select id="category" name="category" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                                <option value="">All categories</option>
+                                <?php foreach ($defaultCategories as $categoryName): ?>
+                                    <?php if (!in_array(strtolower($categoryName), $existingCategoryNames, true)): ?>
+                                        <option value="category:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                                <?php foreach ($categories as $category): ?>
+                                    <option value="category:<?= wallet_escape($category) ?>" <?= ($editBudget['category'] ?? '') === $category ? 'selected' : '' ?>><?= wallet_escape($category) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div>
+                            <label for="period" class="mb-1.5 block text-sm font-medium text-slate-700">Period</label>
+                            <select id="period" name="period" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm capitalize outline-none focus:border-emerald-600">
+                                <?php foreach ($periods as $period): ?>
+                                    <option value="<?= wallet_escape($period) ?>" <?= ($editBudget['period'] ?? 'monthly') === $period ? 'selected' : '' ?>><?= wallet_escape(ucfirst($period)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="start_date" class="mb-1.5 block text-sm font-medium text-slate-700">Start date</label>
+                            <input id="start_date" name="start_date" type="date" required value="<?= wallet_escape((string) ($editBudget['start_date'] ?? $defaultStart)) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
+                        </div>
+                        <div>
+                            <label for="end_date" class="mb-1.5 block text-sm font-medium text-slate-700">End date <span class="font-normal text-slate-400">optional</span></label>
+                            <input id="end_date" name="end_date" type="date" data-expense-limit-end-date value="<?= wallet_escape((string) ($editBudget['end_date'] ?? '')) ?>" <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'disabled' : '' ?> class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
+                            <?php if (($editBudget['is_recurring'] ?? false) && $editBudget['end_date'] !== null): ?>
+                                <input type="hidden" name="end_date" value="<?= wallet_escape((string) $editBudget['end_date']) ?>" data-expense-limit-stopped-end>
+                            <?php endif; ?>
+                            <p class="mt-1.5 text-xs text-slate-400">A one-time limit must run for at least one full selected period. Recurring limits run until stopped.</p>
+                        </div>
+                        <label class="flex items-start gap-3 rounded-xl border border-slate-200 p-3.5">
+                            <input type="checkbox" name="is_recurring" value="1" data-expense-limit-recurring <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'checked' : '' ?> class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600">
+                            <span>
+                                <span class="block text-sm font-medium text-slate-700">Recurring expense limit</span>
+                                <span class="mt-0.5 block text-xs text-slate-500">Repeat every selected period from the start date until you stop it.</span>
+                            </span>
+                        </label>
                     </div>
-                    <div>
-                        <label for="category" class="mb-1.5 block text-sm font-medium text-slate-700">Expense category</label>
-                        <select id="category" name="category" class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                            <option value="">All categories</option>
-                            <?php foreach ($defaultCategories as $categoryName): ?>
-                                <?php if (!in_array(strtolower($categoryName), $existingCategoryNames, true)): ?>
-                                    <option value="category:<?= wallet_escape($categoryName) ?>"><?= wallet_escape($categoryName) ?></option>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                            <?php foreach ($categories as $category): ?>
-                                <option value="category:<?= wallet_escape($category) ?>" <?= ($editBudget['category'] ?? '') === $category ? 'selected' : '' ?>><?= wallet_escape($category) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="period" class="mb-1.5 block text-sm font-medium text-slate-700">Period</label>
-                        <select id="period" name="period" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm capitalize outline-none focus:border-emerald-600">
-                            <?php foreach ($periods as $period): ?>
-                                <option value="<?= wallet_escape($period) ?>" <?= ($editBudget['period'] ?? 'monthly') === $period ? 'selected' : '' ?>><?= wallet_escape(ucfirst($period)) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="start_date" class="mb-1.5 block text-sm font-medium text-slate-700">Start date</label>
-                        <input id="start_date" name="start_date" type="date" required value="<?= wallet_escape((string) ($editBudget['start_date'] ?? $defaultStart)) ?>" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600">
-                    </div>
-                    <div>
-                        <label for="end_date" class="mb-1.5 block text-sm font-medium text-slate-700">End date <span class="font-normal text-slate-400">optional</span></label>
-                        <input id="end_date" name="end_date" type="date" data-expense-limit-end-date value="<?= wallet_escape((string) ($editBudget['end_date'] ?? '')) ?>" <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'disabled' : '' ?> class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
-                        <?php if (($editBudget['is_recurring'] ?? false) && $editBudget['end_date'] !== null): ?>
-                            <input type="hidden" name="end_date" value="<?= wallet_escape((string) $editBudget['end_date']) ?>" data-expense-limit-stopped-end>
+                    <div class="app-modal-footer">
+                        <?php if ($editBudget !== null): ?>
+                            <a href="expenses.php" class="app-modal-button app-modal-secondary">Cancel</a>
+                        <?php else: ?>
+                            <button type="button" data-close-expense-modal class="app-modal-button app-modal-secondary">Cancel</button>
                         <?php endif; ?>
-                        <p class="mt-1.5 text-xs text-slate-400">A one-time limit must run for at least one full selected period. Recurring limits run until stopped.</p>
-                    </div>
-                    <label class="flex items-start gap-3 rounded-xl border border-slate-200 p-3.5">
-                        <input type="checkbox" name="is_recurring" value="1" data-expense-limit-recurring <?= (bool) ($editBudget['is_recurring'] ?? false) ? 'checked' : '' ?> class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600">
-                        <span>
-                            <span class="block text-sm font-medium text-slate-700">Recurring expense limit</span>
-                            <span class="mt-0.5 block text-xs text-slate-500">Repeat every selected period from the start date until you stop it.</span>
-                        </span>
-                    </label>
-                    <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
-                        <button type="button" data-close-expense-modal class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
-                        <button type="submit" class="rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d3024]">
+                        <button type="submit" class="app-modal-button app-modal-primary">
                             <?= $editBudget !== null ? 'Save changes' : 'Create expense limit' ?>
                         </button>
                     </div>
-                    <?php if ($editBudget !== null): ?><a href="expenses.php" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel editing</a><?php endif; ?>
                 </form>
             </div>
         </dialog>

@@ -1,0 +1,10 @@
+{
+  "name": "smart-wallet-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/css/app.source.css -o ./assets/css/app.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.19"
+  }
+}

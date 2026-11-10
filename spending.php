@@ -41,9 +41,8 @@ $appTitle = 'Spending analysis';
 $activePage = 'spending';
 require __DIR__ . '/includes/app_shell_start.php';
 ?>
-<section class="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
+<section class="ui-page-heading flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
     <div>
-        <p class="text-sm font-medium text-emerald-800">Understand your spending</p>
         <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Spending analysis</h1>
         <p class="mt-2 max-w-xl text-sm leading-6 text-slate-500">See where your money goes, when you spend most, and how your habits change.</p>
     </div>
@@ -93,22 +92,22 @@ require __DIR__ . '/includes/app_shell_start.php';
     <?php endif; ?>
 
     <section aria-label="Spending highlights" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article class="rounded-2xl bg-[#102820] p-5 text-white">
+        <article class="ui-metric ui-metric-primary rounded-2xl bg-[#102820] p-5 text-white">
             <p class="text-sm text-emerald-100/80"><?= $analysis['is_current_month'] ? 'Spent this month so far' : 'Total monthly spending' ?></p>
             <p class="mt-4 break-words text-2xl font-semibold tracking-tight"><?= wallet_escape($money($analysis['total_cents'])) ?></p>
             <p class="mt-2 text-xs text-emerald-100/70"><?= $analysis['transaction_count'] ?> <?= $analysis['transaction_count'] === 1 ? 'expense' : 'expenses' ?> recorded</p>
         </article>
-        <article class="rounded-2xl border border-slate-200/80 bg-white p-5">
+        <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
             <p class="text-sm text-slate-500">Compared with <?= wallet_escape($analysis['comparison_label']) ?></p>
             <p class="mt-4 text-xl font-semibold tracking-tight <?= $changeTone ?>"><?= wallet_escape($changeText) ?></p>
             <p class="mt-2 text-xs leading-5 text-slate-500">Previous: <?= wallet_escape($money($analysis['previous_total_cents'])) ?></p>
         </article>
-        <article class="rounded-2xl border border-slate-200/80 bg-white p-5">
+        <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
             <p class="text-sm text-slate-500">Highest spending day</p>
             <p class="mt-4 text-xl font-semibold tracking-tight"><?= $analysis['peak_day'] !== null ? wallet_escape((new DateTimeImmutable($analysis['peak_day']['date']))->format('D, M j')) : 'No spending yet' ?></p>
             <p class="mt-2 text-xs text-slate-500"><?= $analysis['peak_day'] !== null ? wallet_escape($money($analysis['peak_day']['total_cents'])) : 'Add expenses to find your peak day.' ?></p>
         </article>
-        <article class="rounded-2xl border border-slate-200/80 bg-white p-5">
+        <article class="ui-metric ui-card rounded-2xl border border-slate-200/80 bg-white p-5">
             <p class="text-sm text-slate-500">Highest spending week</p>
             <p class="mt-4 text-xl font-semibold tracking-tight"><?= $analysis['peak_week'] !== null ? wallet_escape($shortDate($analysis['peak_week']['start']) . '–' . $shortDate($analysis['peak_week']['end'])) : 'No spending yet' ?></p>
             <p class="mt-2 text-xs text-slate-500"><?= $analysis['peak_week'] !== null ? wallet_escape($money($analysis['peak_week']['total_cents'])) : 'Add expenses to find your peak week.' ?></p>

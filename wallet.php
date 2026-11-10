@@ -79,15 +79,14 @@ $archivedAccounts = array_values(array_filter(
 ));
 $visibleAccounts = $viewArchived ? $archivedAccounts : $activeAccounts;
 
-$appTitle = 'Create wallet';
+$appTitle = 'Wallets';
 $activePage = 'accounts';
 require __DIR__ . '/includes/app_shell_start.php';
 ?>
-<section class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+<section class="ui-page-heading flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
     <div>
-        <p class="text-sm font-medium text-emerald-800">Build your wallet</p>
-        <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Create wallet</h1>
-        <p class="mt-2 text-sm text-slate-500">Manage the places where you keep and move your money.</p>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Wallets</h1>
+        <p class="mt-2 text-sm text-slate-500">Your accounts and balances, in one place.</p>
     </div>
     <div class="flex w-fit items-center gap-2">
         <a
@@ -104,7 +103,7 @@ require __DIR__ . '/includes/app_shell_start.php';
 </section>
 
 <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-    <section class="rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/30">
+    <section class="ui-card rounded-2xl border border-slate-200/80 bg-white">
         <div class="flex flex-col justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:px-6">
             <div>
                 <h2 class="font-semibold tracking-tight"><?= $viewArchived ? 'Archived wallets' : 'Active wallets' ?></h2>
@@ -155,7 +154,7 @@ require __DIR__ . '/includes/app_shell_start.php';
         <?php endif; ?>
     </section>
 
-    <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+    <section class="ui-form-panel ui-card rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
         <h2 class="font-semibold tracking-tight"><?= $editAccount !== null ? 'Edit wallet' : 'Create wallet' ?></h2>
         <p class="mt-1 text-sm text-slate-500">
             <?= $editAccount !== null ? 'Update its name and wallet type.' : 'Wallets in different currencies stay separate.' ?>

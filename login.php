@@ -42,22 +42,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $pageTitle = 'Welcome back';
-$pageDescription = 'Sign in to pick up where you left off.';
+$pageDescription = 'Sign in to your personal workspace.';
 require __DIR__ . '/includes/auth_header.php';
 ?>
 <?php if (isset($_GET['registered']) && $_GET['registered'] === '1'): ?>
-    <div class="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
-        Your account is ready. Sign in to continue.
-    </div>
+    <div class="ui-inline-alert" data-variant="success" role="status"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><p>Your account is ready. Sign in to continue.</p></div>
 <?php endif; ?>
 
 <?php if ($error !== ''): ?>
-    <div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
-        <?= wallet_escape($error) ?>
-    </div>
+    <div class="ui-inline-alert" data-variant="error" role="alert"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5m0 3h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><p><?= wallet_escape($error) ?></p></div>
 <?php endif; ?>
 
-<form method="post" action="login.php" class="mt-8 space-y-5">
+<form method="post" action="login.php" class="space-y-5">
     <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
 
     <div>
@@ -77,6 +73,7 @@ require __DIR__ . '/includes/auth_header.php';
 
     <div>
         <label for="password" class="mb-2 block text-sm font-medium text-slate-700">Password</label>
+        <div class="ui-password">
         <input
             id="password"
             name="password"
@@ -86,19 +83,17 @@ require __DIR__ . '/includes/auth_header.php';
             placeholder="Enter your password"
             class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10"
         >
+            <button type="button" data-toggle-password="password" aria-controls="password" aria-pressed="false" aria-label="Show password">Show</button>
+        </div>
     </div>
 
     <button
         type="submit"
-        class="flex w-full items-center justify-center rounded-xl bg-[#123a2c] px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-[#0d3024] focus:outline-none focus:ring-4 focus:ring-emerald-700/20"
+        class="ui-auth-submit flex w-full items-center justify-center bg-[#123a2c] px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-[#0d3024] focus:outline-none focus:ring-4 focus:ring-emerald-700/20"
     >
         Sign in
         <span aria-hidden="true" class="ml-2">&rarr;</span>
     </button>
 </form>
 
-<p class="mt-8 text-center text-sm text-slate-500">
-    New to Smart Wallet?
-    <a href="register.php" class="font-semibold text-emerald-800 hover:text-emerald-950">Create an account</a>
-</p>
 <?php require __DIR__ . '/includes/auth_footer.php'; ?>

@@ -3,65 +3,49 @@
 declare(strict_types=1);
 
 $pageTitle = $pageTitle ?? 'Smart Wallet';
-$pageDescription = $pageDescription ?? 'A clearer view of your money starts here.';
+$pageDescription = $pageDescription ?? 'A clearer view of your finances.';
+$isRegistration = basename($_SERVER['SCRIPT_NAME']) === 'register.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f6f8f6">
+    <meta name="theme-color" content="#f0f5f2">
     <title><?= wallet_escape($pageTitle) ?> | Smart Wallet</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/../assets/css/app.css') ?>">
+    <link rel="stylesheet" href="assets/css/ui.css?v=<?= filemtime(__DIR__ . '/../assets/css/ui.css') ?>">
+    <link rel="stylesheet" href="assets/css/app-alert.css?v=<?= filemtime(__DIR__ . '/../assets/css/app-alert.css') ?>">
 </head>
-<body class="min-h-screen bg-[#f6f8f6] font-sans text-slate-900 antialiased">
-<main class="mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-8 sm:px-6 lg:px-10">
-    <div class="grid w-full overflow-hidden rounded-[2rem] bg-white shadow-[0_24px_80px_-32px_rgba(15,35,28,0.22)] lg:min-h-[680px] lg:grid-cols-[1fr_1fr]">
-        <section class="relative hidden flex-col justify-between overflow-hidden bg-[#102820] p-10 text-white lg:flex xl:p-14">
-            <div class="absolute -right-28 -top-28 h-80 w-80 rounded-full border border-white/10"></div>
-            <div class="absolute -right-12 -top-12 h-48 w-48 rounded-full border border-white/10"></div>
-            <div class="absolute -bottom-36 -left-28 h-96 w-96 rounded-full bg-emerald-400/10 blur-2xl"></div>
-
-            <a href="index.php" class="relative inline-flex items-center gap-3 text-lg font-semibold tracking-tight">
-                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400 text-[#102820]">
-                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M4 17.5 9.2 12l3.5 3.2L20 7.5M14.8 7.5H20v5.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </span>
-                Smart Wallet
-            </a>
-
-            <div class="relative max-w-md py-12">
-                <p class="mb-5 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Money, in perspective</p>
-                <h1 class="text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">
-                    Make room for the things that matter.
-                </h1>
-                <p class="mt-6 max-w-sm text-base leading-7 text-slate-300">
-                    Bring your income, expenses, and savings together in one calmer view of your finances.
-                </p>
-                <div class="mt-10 flex items-center gap-3 text-sm text-slate-300">
-                    <span class="flex -space-x-2" aria-hidden="true">
-                        <span class="h-8 w-8 rounded-full border-2 border-[#102820] bg-emerald-200"></span>
-                        <span class="h-8 w-8 rounded-full border-2 border-[#102820] bg-teal-300"></span>
-                        <span class="h-8 w-8 rounded-full border-2 border-[#102820] bg-lime-200"></span>
-                    </span>
-                    <span>A more thoughtful way to manage money</span>
-                </div>
+<body class="ui-auth font-sans antialiased">
+<a href="#auth-form" class="ui-skip">Skip to form</a>
+<main class="ui-auth-layout">
+    <aside class="ui-auth-story" aria-label="About Smart Wallet">
+        <?php require __DIR__ . '/brand.php'; ?>
+        <div class="ui-auth-story-copy">
+            <p class="ui-auth-kicker">A little more clarity</p>
+            <h2>Your money.<br>Your plans.<br>One clear picture.</h2>
+            <p>Keep track of the everyday, make space for your goals, and feel more in control of what comes next.</p>
+            <div class="ui-auth-illustration" aria-hidden="true">
+                <div class="ui-auth-illustration-head"><span>Small steps. Steady progress.</span><svg style="width:16px;height:16px;margin:0" viewBox="0 0 24 24" fill="none"><path d="m4 16 6-6 4 3 6-8m-6 0h6v6" stroke="#54816b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <svg viewBox="0 0 300 108" fill="none" preserveAspectRatio="none">
+                    <path d="M0 22h300M0 54h300M0 86h300" stroke="#e1eae4" stroke-dasharray="3 5"/>
+                    <path d="M0 91C20 91 23 74 45 75S70 86 90 65 115 72 137 48 160 57 184 36 210 43 232 24 264 29 291 10" stroke="#579675" stroke-width="2.2" stroke-linecap="round"/>
+                    <circle cx="291" cy="10" r="4" fill="#579675" stroke="#fff" stroke-width="3"/>
+                </svg>
+                <div class="ui-auth-illustration-foot"><span></span>A clearer view, one day at a time.</div>
             </div>
-
-            <p class="relative text-xs text-slate-400">&copy; <?= date('Y') ?> Smart Wallet</p>
-        </section>
-
-        <section class="flex items-center justify-center px-5 py-10 sm:px-10 lg:px-12 xl:px-16">
-            <div class="w-full max-w-md">
-                <a href="index.php" class="mb-10 inline-flex items-center gap-2 text-base font-semibold tracking-tight lg:hidden">
-                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-[#102820] text-emerald-300">
-                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M4 17.5 9.2 12l3.5 3.2L20 7.5M14.8 7.5H20v5.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </span>
-                    Smart Wallet
-                </a>
-                <p class="mb-2 text-sm font-medium text-emerald-700">Smart Wallet</p>
-                <h2 class="text-3xl font-semibold tracking-tight"><?= wallet_escape($pageTitle) ?></h2>
-                <p class="mt-2 text-sm leading-6 text-slate-500"><?= wallet_escape($pageDescription) ?></p>
+        </div>
+        <p class="ui-auth-story-footer">&copy; <?= date('Y') ?> Smart Wallet. Keep life in balance.</p>
+    </aside>
+    <section class="ui-auth-panel">
+        <div class="flex items-center justify-between gap-4">
+            <div class="ui-auth-mobile-brand"><?php require __DIR__ . '/brand.php'; ?></div>
+            <div class="ui-auth-switch">
+                <span><?= $isRegistration ? 'Already have an account?' : 'New to Smart Wallet?' ?></span>
+                <a href="<?= $isRegistration ? 'login.php' : 'register.php' ?>"><?= $isRegistration ? 'Sign in' : 'Create account' ?></a>
+            </div>
+        </div>
+        <div id="auth-form" class="ui-auth-form">
+            <h1><?= wallet_escape($pageTitle) ?></h1>
+            <p class="ui-auth-description"><?= wallet_escape($pageDescription) ?></p>

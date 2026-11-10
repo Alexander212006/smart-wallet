@@ -195,33 +195,37 @@ $appTitle = 'Savings';
 $activePage = 'savings';
 require __DIR__ . '/includes/app_shell_start.php';
 ?>
-<section class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-    <div>
-        <p class="text-sm font-medium text-emerald-800">Keep moving forward</p>
-        <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Savings</h1>
-        <p class="mt-2 text-sm text-slate-500">Give your plans a target, then celebrate every contribution.</p>
+<section class="ui-page-heading ui-savings-heading">
+    <div class="ui-savings-title-row">
+        <div>
+            <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Savings</h1>
+            <p class="mt-2 text-sm text-slate-500">Give your plans a target, then celebrate every contribution.</p>
+        </div>
+        <?php if ($currencies !== []): ?>
+            <button type="button" data-open-app-dialog="savings-goal-modal" aria-haspopup="dialog" aria-controls="savings-goal-modal" class="ui-savings-create inline-flex items-center gap-2 rounded-lg bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d3024] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><?= $editGoal !== null ? 'Edit goal' : 'Create goal' ?></button>
+        <?php endif; ?>
     </div>
-    <div class="flex items-center gap-2">
-        <a href="savings.php" class="rounded-lg px-3 py-1.5 text-sm font-medium transition <?= !$viewAchieved ? 'bg-[#123a2c] text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' ?>">
-            Active <span class="ml-1 <?= !$viewAchieved ? 'text-emerald-300' : 'text-slate-400' ?>"><?= count($activeGoals) ?></span>
+    <nav class="ui-savings-tabs" aria-label="Savings goal views">
+        <a href="savings.php" <?= !$viewAchieved ? 'aria-current="page"' : '' ?>>
+            Active <span class="ui-savings-tab-count"><?= count($activeGoals) ?></span>
         </a>
-        <a href="savings.php?view=achieved" class="rounded-lg px-3 py-1.5 text-sm font-medium transition <?= $viewAchieved ? 'bg-[#123a2c] text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' ?>">
-            Achieved <span class="ml-1 <?= $viewAchieved ? 'text-emerald-300' : 'text-slate-400' ?>"><?= count($achievedGoals) ?></span>
+        <a href="savings.php?view=achieved" <?= $viewAchieved ? 'aria-current="page"' : '' ?>>
+            Achieved <span class="ui-savings-tab-count"><?= count($achievedGoals) ?></span>
         </a>
-    </div>
+    </nav>
 </section>
 
 <?php if ($currencies === []): ?>
-    <section class="rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
+    <section class="ui-card rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
         <h2 class="font-semibold">Create your wallet first</h2>
         <p class="mt-2 text-sm text-slate-500">Savings goals use the currency of your wallet.</p>
-        <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Go to Create wallet</a>
+        <a href="wallet.php" class="mt-5 inline-flex rounded-xl bg-[#123a2c] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d3024]">Create a wallet</a>
     </section>
 <?php else: ?>
-    <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
-        <section class="space-y-4">
+    <div class="<?= $editContribution !== null ? 'grid items-start gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]' : 'space-y-6' ?>">
+        <section class="<?= $editContribution !== null ? 'space-y-4' : 'grid items-start gap-4 xl:grid-cols-2' ?>">
             <?php if ($displayGoals === []): ?>
-                <div class="rounded-2xl border border-slate-200/80 bg-white px-5 py-10 text-center shadow-sm">
+                <div class="xl:col-span-2 ui-card rounded-2xl border border-slate-200/80 bg-white px-5 py-10 text-center shadow-sm">
                     <?php if ($viewAchieved): ?>
                         <span class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
                             <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>
@@ -243,7 +247,7 @@ require __DIR__ . '/includes/app_shell_start.php';
                 $predictionStatus = (string) $goal['prediction_status'];
                 $goalContributions = array_slice($contributionsByGoal[$goal['id']] ?? [], 0, 3);
                 ?>
-                <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+                <article class="ui-card rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
                     <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
@@ -256,7 +260,7 @@ require __DIR__ . '/includes/app_shell_start.php';
                             <p class="mt-1 text-xs text-slate-400"><?= $goal['target_date'] !== null ? 'Target date ' . wallet_escape(date('M j, Y', strtotime((string) $goal['target_date']))) : 'No target date' ?></p>
                         </div>
                         <div class="relative flex items-center gap-2">
-                            <a href="savings.php?edit=<?= (int) $goal['id'] ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
+                            <a href="savings.php?edit=<?= (int) $goal['id'] ?><?= $viewAchieved ? '&amp;view=achieved' : '' ?>" class="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</a>
                             <?php if (in_array($goal['status'], ['active', 'paused'], true)): ?>
                                 <form method="post" action="savings.php">
                                     <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
@@ -361,7 +365,7 @@ require __DIR__ . '/includes/app_shell_start.php';
         </section>
 
         <?php if ($editContribution !== null): ?>
-        <section id="contribution-editor" class="scroll-mt-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
+        <section id="contribution-editor" class="scroll-mt-6 rounded-2xl border border-slate-200/80 bg-white p-5 ui-card sm:p-6">
             <h2 class="font-semibold tracking-tight">Edit contribution</h2>
             <p class="mt-1 text-sm text-slate-500"><?= wallet_escape((string) $editContribution['goal_name']) ?> · <?= wallet_escape((string) $editContribution['currency_code']) ?></p>
             <form method="post" action="savings.php" class="mt-5 space-y-4">
@@ -400,45 +404,60 @@ require __DIR__ . '/includes/app_shell_start.php';
                 <a href="savings.php<?= $viewAchieved ? '?view=achieved' : '' ?>" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a>
             </form>
         </section>
-        <?php else: ?>
-        <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30 sm:p-6">
-            <h2 class="font-semibold tracking-tight"><?= $editGoal !== null ? 'Edit savings goal' : 'Create a goal' ?></h2>
-            <p class="mt-1 text-sm text-slate-500">Set a target and keep track of each contribution.</p>
-            <form method="post" action="savings.php" class="mt-5 space-y-4" <?= $editGoal === null ? 'data-confirm-title="Create this savings goal?" data-confirm-description="The goal will be added to your savings tracker." data-confirm-label="Create goal"' : '' ?>>
-                <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
-                <input type="hidden" name="action" value="<?= $editGoal !== null ? 'update' : 'create' ?>">
-                <?php if ($editGoal !== null): ?><input type="hidden" name="goal_id" value="<?= (int) $editGoal['id'] ?>"><?php endif; ?>
-                <div>
-                    <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700">Goal name</label>
-                    <input id="name" name="name" maxlength="120" required value="<?= wallet_escape((string) ($editGoal['name'] ?? '')) ?>" placeholder="Emergency fund" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
-                </div>
-                <div>
-                    <label for="description" class="mb-1.5 block text-sm font-medium text-slate-700">Description <span class="font-normal text-slate-400">optional</span></label>
-                    <textarea id="description" name="description" rows="3" maxlength="2000" placeholder="What are you saving for?" class="w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10"><?= wallet_escape((string) ($editGoal['description'] ?? '')) ?></textarea>
-                </div>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <label for="target_amount" class="mb-1.5 block text-sm font-medium text-slate-700">Target amount</label>
-                        <input id="target_amount" name="target_amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editGoal['target_amount'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                    </div>
-                    <div>
-                        <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency</label>
-                        <select id="currency_code" name="currency_code" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                            <?php foreach ($currencies as $currency): ?>
-                                <option value="<?= wallet_escape((string) $currency) ?>" <?= ($editGoal['currency_code'] ?? $currencies[0]) === $currency ? 'selected' : '' ?>><?= wallet_escape((string) $currency) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div>
-                    <label for="target_date" class="mb-1.5 block text-sm font-medium text-slate-700">Target date</label>
-                    <input id="target_date" name="target_date" type="date" required value="<?= wallet_escape((string) ($editGoal['target_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
-                </div>
-                <button type="submit" class="w-full rounded-xl bg-[#123a2c] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#0d3024]"><?= $editGoal !== null ? 'Save changes' : 'Create savings goal' ?></button>
-                <?php if ($editGoal !== null): ?><a href="savings.php" class="block text-center text-sm font-medium text-slate-500 hover:text-slate-800">Cancel</a><?php endif; ?>
-            </form>
-        </section>
         <?php endif; ?>
     </div>
+        <dialog id="savings-goal-modal" data-app-modal <?= $editGoal !== null || ($_GET['new'] ?? '') === 'goal' ? 'data-open-on-load' : '' ?> aria-labelledby="savings-goal-modal-title" aria-describedby="savings-goal-modal-description" class="app-modal">
+            <div class="app-modal-content">
+                <div class="app-modal-header">
+                    <span class="app-modal-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
+                    <div class="app-modal-heading">
+                        <h2 id="savings-goal-modal-title"><?= $editGoal !== null ? 'Edit savings goal' : 'Create a goal' ?></h2>
+                        <p id="savings-goal-modal-description">Set a target and give your next plan a place to grow.</p>
+                    </div>
+                    <button type="button" data-close-app-modal class="app-modal-close" aria-label="Close dialog"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+                </div>
+                <form method="post" action="savings.php" class="app-modal-form" <?= $editGoal === null ? 'data-confirm-title="Create this savings goal?" data-confirm-description="The goal will be added to your savings tracker." data-confirm-label="Create goal"' : '' ?>>
+                    <div class="app-modal-body">
+                        <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
+                        <input type="hidden" name="action" value="<?= $editGoal !== null ? 'update' : 'create' ?>">
+                        <?php if ($editGoal !== null): ?><input type="hidden" name="goal_id" value="<?= (int) $editGoal['id'] ?>"><?php endif; ?>
+                        <div>
+                            <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700">Goal name</label>
+                            <input id="name" name="name" maxlength="120" required value="<?= wallet_escape((string) ($editGoal['name'] ?? '')) ?>" placeholder="Emergency fund" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10">
+                        </div>
+                        <div>
+                            <label for="description" class="mb-1.5 block text-sm font-medium text-slate-700">Description <span class="font-normal text-slate-400">optional</span></label>
+                            <textarea id="description" name="description" rows="3" maxlength="2000" placeholder="What are you saving for?" class="w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10"><?= wallet_escape((string) ($editGoal['description'] ?? '')) ?></textarea>
+                        </div>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label for="target_amount" class="mb-1.5 block text-sm font-medium text-slate-700">Target amount</label>
+                                <input id="target_amount" name="target_amount" type="number" min="0.01" step="0.01" required value="<?= wallet_escape((string) ($editGoal['target_amount'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                            </div>
+                            <div>
+                                <label for="currency_code" class="mb-1.5 block text-sm font-medium text-slate-700">Currency</label>
+                                <select id="currency_code" name="currency_code" required class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                                    <?php foreach ($currencies as $currency): ?>
+                                        <option value="<?= wallet_escape((string) $currency) ?>" <?= ($editGoal['currency_code'] ?? $currencies[0]) === $currency ? 'selected' : '' ?>><?= wallet_escape((string) $currency) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="target_date" class="mb-1.5 block text-sm font-medium text-slate-700">Target date</label>
+                            <input id="target_date" name="target_date" type="date" required value="<?= wallet_escape((string) ($editGoal['target_date'] ?? '')) ?>" class="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-emerald-600">
+                        </div>
+                    </div>
+                    <div class="app-modal-footer">
+                        <?php if ($editGoal !== null): ?>
+                            <a href="savings.php<?= $viewAchieved ? '?view=achieved' : '' ?>" class="app-modal-button app-modal-secondary">Cancel</a>
+                        <?php else: ?>
+                            <button type="button" data-close-app-modal class="app-modal-button app-modal-secondary">Cancel</button>
+                        <?php endif; ?>
+                        <button type="submit" class="app-modal-button app-modal-primary"><?= $editGoal !== null ? 'Save changes' : 'Create savings goal' ?></button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
 <?php endif; ?>
 <?php require __DIR__ . '/includes/app_shell_end.php'; ?>
