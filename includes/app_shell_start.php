@@ -40,7 +40,7 @@ $mainId = 'main-content';
                     <strong><?= wallet_escape($appName) ?></strong>
                     <span class="truncate"><?= wallet_escape($appEmail) ?></span>
                 </div>
-                <form method="post" action="logout.php">
+                <form method="post" action="logout.php" data-confirm-title="Sign out of Smart Wallet?" data-confirm-description="You'll need to sign in again to access your account." data-confirm-label="Sign out" data-confirm-variant="danger" data-confirm-icon="logout">
                     <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
                     <button type="submit" class="ui-icon-button" aria-label="Sign out" title="Sign out">
                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H5v16h4m6-12 4 4-4 4m-7-4h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -80,7 +80,7 @@ $mainId = 'main-content';
                 <button type="button" class="ui-icon-button" data-close-navigation aria-label="Close navigation"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
             </div>
             <?php $navigationLayout = 'mobile'; require __DIR__ . '/main_navigation.php'; ?>
-            <form method="post" action="logout.php">
+            <form method="post" action="logout.php" data-confirm-title="Sign out of Smart Wallet?" data-confirm-description="You'll need to sign in again to access your account." data-confirm-label="Sign out" data-confirm-variant="danger" data-confirm-icon="logout">
                 <input type="hidden" name="csrf_token" value="<?= wallet_escape(wallet_csrf_token()) ?>">
                 <button type="submit" class="text-sm font-medium text-slate-500">Sign out</button>
             </form>

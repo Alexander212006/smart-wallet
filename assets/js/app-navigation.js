@@ -79,7 +79,7 @@
         closeActionConfirmation('confirm');
     });
 
-    const confirmAppAction = ({ title, description, confirmLabel, danger = false }) => new Promise((resolve) => {
+    const confirmAppAction = ({ title, description, confirmLabel, danger = false, icon = '' }) => new Promise((resolve) => {
         if (actionConfirmationDialog.open) {
             resolve(false);
             return;
@@ -88,7 +88,9 @@
         actionConfirmationDescription.textContent = description;
         actionConfirmationSubmit.textContent = confirmLabel;
         actionConfirmationDialog.dataset.variant = danger ? 'danger' : 'confirm';
-        actionConfirmationDialog.querySelector('[data-confirm-icon-path]').setAttribute('d', danger
+        actionConfirmationDialog.querySelector('[data-confirm-icon-path]').setAttribute('d', icon === 'logout'
+            ? 'M9 4H5v16h4m6-12 4 4-4 4m-7-4h11'
+            : danger
             ? 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7'
             : 'm5 12 4 4L19 6');
         actionConfirmationSubmit.className = 'app-modal-button ' + (danger ? 'app-modal-danger' : 'app-modal-primary');
@@ -413,6 +415,7 @@
                 description: form.dataset.confirmDescription || 'Please confirm this action.',
                 confirmLabel: form.dataset.confirmLabel || 'Confirm',
                 danger: form.dataset.confirmVariant === 'danger',
+                icon: form.dataset.confirmIcon,
             }).then((confirmed) => {
                 if (confirmed) {
                     navigate(url, { method, body: formData, historyMode: 'replace' });
